@@ -55,10 +55,10 @@ function selectSession({ session, project }) {
 
 .app-container {
   flex: 1;
-  max-width: 1400px;
   width: 100%;
-  margin: 0 auto;
+  margin: 0;
   padding: 2rem;
+  display: flex;
 }
 
 @media (max-width: 768px) {
