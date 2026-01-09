@@ -94,10 +94,16 @@ onMounted(async () => {
 });
 
 async function expandProject(projectId) {
+  console.log('[ProjectBrowser] Expanding project:', projectId);
+  if (!projectId) {
+    console.error('[ProjectBrowser] projectId is undefined!');
+    return;
+  }
   if (loadingSessions.value[projectId]) return;
 
   loadingSessions.value[projectId] = true;
   try {
+    console.log('[ProjectBrowser] Fetching sessions for projectId:', projectId);
     projectSessions.value[projectId] = await getProjectSessions(projectId);
   } catch (err) {
     error.value = err.message;

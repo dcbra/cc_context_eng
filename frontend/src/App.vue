@@ -56,6 +56,10 @@ onMounted(() => {
 });
 
 function selectProject(project) {
+  console.log('[App] selectProject called with:', project);
+  if (!project.id) {
+    console.error('[App] WARNING: project.id is missing!', project);
+  }
   navigationStore.push({
     type: 'project',
     data: project
