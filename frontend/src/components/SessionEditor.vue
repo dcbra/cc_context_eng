@@ -390,6 +390,7 @@ function handleSanitized(result) {
   flex: 1;
   overflow-y: auto;
   padding: 1.5rem;
+  width: 100%;
 }
 
 .tab-content {
@@ -406,7 +407,8 @@ function handleSanitized(result) {
 }
 
 .messages-section {
-  max-width: 1000px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .section-header {
@@ -462,6 +464,9 @@ function handleSanitized(result) {
   border-radius: 6px;
   transition: all 0.2s ease;
   cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .message-card:hover {
@@ -487,6 +492,8 @@ function handleSanitized(result) {
 
 .message-body {
   flex: 1;
+  min-width: 0;
+  width: 100%;
 }
 
 .message-header {
@@ -559,6 +566,28 @@ function handleSanitized(result) {
   border-top: 1px solid #e0e0e0;
   display: grid;
   gap: 0.75rem;
+  max-height: 800px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+  min-height: 300px;
+}
+
+.message-expanded::-webkit-scrollbar {
+  width: 8px;
+}
+
+.message-expanded::-webkit-scrollbar-track {
+  background: #f0f0f0;
+  border-radius: 4px;
+}
+
+.message-expanded::-webkit-scrollbar-thumb {
+  background: #999;
+  border-radius: 4px;
+}
+
+.message-expanded::-webkit-scrollbar-thumb:hover {
+  background: #666;
 }
 
 .content-block {
@@ -567,6 +596,8 @@ function handleSanitized(result) {
   border-left: 3px solid #ddd;
   border-radius: 3px;
   font-size: 0.85rem;
+  min-width: 0;
+  width: 100%;
 }
 
 .text-block {
@@ -583,6 +614,8 @@ function handleSanitized(result) {
   overflow-wrap: break-word;
   line-height: 1.6;
   font-size: 0.9rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .tool-use-block {
@@ -621,7 +654,8 @@ function handleSanitized(result) {
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;
-  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .files-referenced {
