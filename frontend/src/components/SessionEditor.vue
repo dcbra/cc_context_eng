@@ -53,17 +53,18 @@
               v-for="message in sessionData.messages"
               :key="message.uuid"
               class="message-card"
-              :class="{ selected: selectionStore.selectedMessages.has(message.uuid) }"
+              :class="{ selected: selectionStore.selectedMessages.has(message.uuid), expanded: expandedMessageId === message.uuid }"
             >
               <div class="message-checkbox">
                 <input
                   type="checkbox"
                   :checked="selectionStore.selectedMessages.has(message.uuid)"
                   @change="selectionStore.toggleMessage(message.uuid)"
+                  @click.stop
                 />
               </div>
 
-              <div class="message-body">
+              <div class="message-body" @click="expandedMessageId = expandedMessageId === message.uuid ? null : message.uuid">
                 <div class="message-header">
                   <span class="message-type" :class="message.type">{{ message.type }}</span>
                   <span class="message-time">{{ formatTime(message.timestamp) }}</span>
@@ -71,10 +72,38 @@
                   <span v-if="message.toolUses.length > 0" class="message-tools">
                     {{ message.toolUses.length }} tools
                   </span>
+                  <span class="expand-icon">{{ expandedMessageId === message.uuid ? '▼' : '▶' }}</span>
                 </div>
 
                 <div class="message-preview">
                   {{ getPreview(message) }}
+                </div>
+
+                <!-- Expanded Content -->
+                <div v-if="expandedMessageId === message.uuid" class="message-expanded">
+                  <div v-for="(block, idx) in message.content" :key="idx" class="content-block">
+                    <div v-if="block.type === 'text'" class="text-block">
+                      <p>{{ block.text }}</p>
+                    </div>
+                    <div v-else-if="block.type === 'tool_use'" class="tool-use-block">
+                      <div class="tool-header">🔧 Tool: {{ block.name }}</div>
+                      <pre v-if="block.input" class="tool-input">{{ JSON.stringify(block.input, null, 2) }}</pre>
+                    </div>
+                    <div v-else-if="block.type === 'tool_result'" class="tool-result-block">
+                      <div class="tool-header">📋 Result</div>
+                      <pre class="tool-result">{{ typeof block.content === 'string' ? block.content.substring(0, 500) : JSON.stringify(block.content, null, 2) }}</pre>
+                    </div>
+                    <div v-else class="unknown-block">
+                      <pre>{{ JSON.stringify(block, null, 2) }}</pre>
+                    </div>
+                  </div>
+
+                  <div v-if="message.filesReferenced.length > 0" class="files-referenced">
+                    <div class="files-header">📁 Files Referenced:</div>
+                    <div class="files-list">
+                      <span v-for="file in message.filesReferenced" :key="file" class="file-tag">{{ file }}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -140,6 +169,7 @@ const activeTab = ref('messages');
 const sessionData = ref(null);
 const loading = ref(true);
 const error = ref(null);
+const expandedMessageId = ref(null);
 
 const selectedCount = computed(() => selectionStore.selectedMessageCount);
 
@@ -495,5 +525,111 @@ function handleSanitized(result) {
   color: #666;
   line-height: 1.4;
   word-break: break-word;
+  cursor: pointer;
+}
+
+.expand-icon {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: #999;
+  user-select: none;
+}
+
+.message-card.expanded {
+  border-color: #667eea;
+  background-color: white;
+}
+
+.message-expanded {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e0e0e0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.content-block {
+  padding: 0.75rem;
+  background-color: #f5f5f5;
+  border-left: 3px solid #ddd;
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+
+.text-block {
+  border-left-color: #667eea;
+  color: #333;
+  line-height: 1.5;
+}
+
+.text-block p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.tool-use-block {
+  border-left-color: #ff9800;
+  background-color: #fffbe6;
+}
+
+.tool-result-block {
+  border-left-color: #4caf50;
+  background-color: #f1f8e9;
+}
+
+.unknown-block {
+  border-left-color: #999;
+  background-color: #fafafa;
+}
+
+.tool-header {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.tool-input,
+.tool-result {
+  margin: 0;
+  padding: 0.5rem;
+  background: white;
+  border-radius: 3px;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  color: #333;
+}
+
+.files-referenced {
+  padding: 0.75rem;
+  background-color: #f0f4ff;
+  border-left: 3px solid #667eea;
+  border-radius: 3px;
+  margin-top: 0.5rem;
+}
+
+.files-header {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.files-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.file-tag {
+  background-color: #e8eaf6;
+  color: #667eea;
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.8rem;
+  border: 1px solid #667eea;
 }
 </style>
