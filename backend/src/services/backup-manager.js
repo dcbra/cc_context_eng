@@ -7,39 +7,54 @@ const BACKUPS_DIR = path.join(path.dirname(import.meta.url.replace('file://', ''
 const MAX_VERSIONS = 10;
 
 /**
- * Save a backup of the current session
+ * Save a backup of the current session by copying the original file
  */
 export async function createBackup(sessionId, projectId, messages, description = '') {
   const backupDir = getSessionBackupDir(projectId, sessionId);
   await fs.ensureDir(backupDir);
 
+  // Get the original session file path
+  const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
+  const sessionFilePath = path.join(PROJECTS_DIR, projectId, `${sessionId}.jsonl`);
+
   // Get next version number
   const versions = await getBackupVersions(backupDir);
-  const nextVersion = versions.length + 1;
 
   // Rotate old backups: v10 -> delete, v9 -> v10, ..., current -> v1
   if (versions.length >= MAX_VERSIONS) {
     const oldestBackup = path.join(backupDir, `v${MAX_VERSIONS}.jsonl`);
+    const oldestMeta = path.join(backupDir, `v${MAX_VERSIONS}.meta.json`);
     if (await fs.pathExists(oldestBackup)) {
       await fs.remove(oldestBackup);
+    }
+    if (await fs.pathExists(oldestMeta)) {
+      await fs.remove(oldestMeta);
     }
   }
 
   // Rename existing backups
-  for (let i = versions.length; i > 0; i--) {
+  for (let i = Math.min(versions.length, MAX_VERSIONS - 1); i > 0; i--) {
     const oldPath = path.join(backupDir, `v${i}.jsonl`);
+    const oldMeta = path.join(backupDir, `v${i}.meta.json`);
     const newPath = path.join(backupDir, `v${i + 1}.jsonl`);
+    const newMeta = path.join(backupDir, `v${i + 1}.meta.json`);
     if (await fs.pathExists(oldPath)) {
       await fs.rename(oldPath, newPath);
     }
+    if (await fs.pathExists(oldMeta)) {
+      await fs.rename(oldMeta, newMeta);
+    }
   }
 
-  // Save new backup as v1
+  // Copy original session file directly to preserve ALL records (messages, summaries, file-history-snapshots)
   const backupPath = path.join(backupDir, 'v1.jsonl');
-  const jsonl = messagesToJsonl(messages);
-
-  // Save with metadata
-  await fs.writeFile(backupPath, jsonl, 'utf-8');
+  if (await fs.pathExists(sessionFilePath)) {
+    await fs.copy(sessionFilePath, backupPath);
+  } else {
+    // Fallback: reconstruct from messages if original file doesn't exist
+    const jsonl = messagesToJsonl(messages);
+    await fs.writeFile(backupPath, jsonl, 'utf-8');
+  }
 
   // Save metadata file
   const metadataPath = path.join(backupDir, 'v1.meta.json');

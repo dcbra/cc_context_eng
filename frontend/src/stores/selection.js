@@ -17,11 +17,19 @@ export const useSelectionStore = defineStore('selection', () => {
   }
 
   function toggleMessage(uuid) {
-    if (selectedMessages.value.has(uuid)) {
-      selectedMessages.value.delete(uuid);
+    const newSet = new Set(selectedMessages.value);
+    if (newSet.has(uuid)) {
+      newSet.delete(uuid);
     } else {
-      selectedMessages.value.add(uuid);
+      newSet.add(uuid);
     }
+    selectedMessages.value = newSet;
+  }
+
+  function selectMessageRange(uuids) {
+    const newSet = new Set(selectedMessages.value);
+    uuids.forEach(uuid => newSet.add(uuid));
+    selectedMessages.value = newSet;
   }
 
   function selectAllMessages() {
@@ -29,7 +37,7 @@ export const useSelectionStore = defineStore('selection', () => {
   }
 
   function clearMessages() {
-    selectedMessages.value.clear();
+    selectedMessages.value = new Set();
   }
 
   function toggleAllMessages() {
@@ -41,11 +49,13 @@ export const useSelectionStore = defineStore('selection', () => {
   }
 
   function toggleFile(filePath) {
-    if (selectedFiles.value.has(filePath)) {
-      selectedFiles.value.delete(filePath);
+    const newSet = new Set(selectedFiles.value);
+    if (newSet.has(filePath)) {
+      newSet.delete(filePath);
     } else {
-      selectedFiles.value.add(filePath);
+      newSet.add(filePath);
     }
+    selectedFiles.value = newSet;
   }
 
   function selectAllFiles(files) {
@@ -53,7 +63,7 @@ export const useSelectionStore = defineStore('selection', () => {
   }
 
   function clearFiles() {
-    selectedFiles.value.clear();
+    selectedFiles.value = new Set();
   }
 
   function clearAll() {
@@ -69,6 +79,7 @@ export const useSelectionStore = defineStore('selection', () => {
     allSelected,
     setAllMessages,
     toggleMessage,
+    selectMessageRange,
     selectAllMessages,
     clearMessages,
     toggleAllMessages,

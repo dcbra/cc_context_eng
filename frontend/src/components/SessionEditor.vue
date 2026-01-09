@@ -45,12 +45,15 @@
               <button @click="selectAllMessages" class="btn-small">Select All</button>
               <button @click="clearAllMessages" class="btn-small">Clear</button>
               <span class="selected-count">{{ selectedCount }} selected</span>
+              <div v-if="selectedCount > 0" class="action-menu">
+                <button @click="deleteSelectedMessages" class="btn-danger-small">Delete Selected</button>
+              </div>
             </div>
           </div>
 
           <div class="messages-container">
             <div
-              v-for="message in sessionData.messages"
+              v-for="(message, index) in sessionData.messages"
               :key="message.uuid"
               class="message-card"
               :class="{ selected: selectionStore.selectedMessages.has(message.uuid), expanded: expandedMessageId === message.uuid }"
@@ -59,8 +62,7 @@
                 <input
                   type="checkbox"
                   :checked="selectionStore.selectedMessages.has(message.uuid)"
-                  @change="selectionStore.toggleMessage(message.uuid)"
-                  @click.stop
+                  @click="handleMessageSelection($event, message.uuid, index)"
                 />
               </div>
 
@@ -113,7 +115,13 @@
 
       <!-- Files Tab -->
       <div v-if="activeTab === 'files'" class="tab-content">
-        <FileTracker :files="sessionData.files" />
+        <FileTracker
+          :key="sessionData.files?.length || 0"
+          :files="sessionData.files"
+          :sessionId="session.sessionId"
+          :projectId="session.projectId"
+          @files-updated="handleFilesUpdated"
+        />
       </div>
 
       <!-- Sanitize Tab -->
@@ -170,6 +178,7 @@ const sessionData = ref(null);
 const loading = ref(true);
 const error = ref(null);
 const expandedMessageId = ref(null);
+const lastSelectedIndex = ref(null);
 
 const selectedCount = computed(() => selectionStore.selectedMessageCount);
 
@@ -182,8 +191,13 @@ async function loadSession() {
   error.value = null;
 
   try {
-    sessionData.value = await getSession(props.session.sessionId, props.session.projectId);
-    selectionStore.setAllMessages(sessionData.value.messages);
+    const newSessionData = await getSession(props.session.sessionId, props.session.projectId);
+    console.log('Loaded session data:', {
+      messages: newSessionData.messages?.length,
+      files: newSessionData.files?.length
+    });
+    sessionData.value = newSessionData;
+    selectionStore.setAllMessages(newSessionData.messages);
   } catch (err) {
     error.value = err.message;
   } finally {
@@ -201,6 +215,64 @@ function selectAllMessages() {
 
 function clearAllMessages() {
   selectionStore.clearMessages();
+}
+
+function handleMessageSelection(event, uuid, currentIndex) {
+  event.stopPropagation();
+
+  if (event.shiftKey && lastSelectedIndex.value !== null) {
+    // Shift+click: prevent default and select range
+    event.preventDefault();
+
+    const start = Math.min(lastSelectedIndex.value, currentIndex);
+    const end = Math.max(lastSelectedIndex.value, currentIndex);
+
+    const rangeUuids = [];
+    for (let i = start; i <= end; i++) {
+      rangeUuids.push(sessionData.value.messages[i].uuid);
+    }
+    selectionStore.selectMessageRange(rangeUuids);
+  } else {
+    // Regular click: toggle single message (checkbox handles its own state change)
+    selectionStore.toggleMessage(uuid);
+  }
+
+  lastSelectedIndex.value = currentIndex;
+}
+
+async function deleteSelectedMessages() {
+  if (selectedCount.value === 0) return;
+
+  if (!confirm(`Delete ${selectedCount.value} selected message(s)?`)) {
+    return;
+  }
+
+  try {
+    loading.value = true;
+    const response = await fetch(
+      `/api/sanitize/${props.session.sessionId}?projectId=${props.session.projectId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          removeMessages: Array.from(selectionStore.selectedMessages),
+          removeFiles: [],
+          criteria: {}
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to delete messages');
+    }
+
+    await loadSession();
+    selectionStore.clearMessages();
+  } catch (err) {
+    error.value = err.message;
+  } finally {
+    loading.value = false;
+  }
 }
 
 function getPreview(message) {
@@ -274,9 +346,16 @@ function formatTextContent(text) {
 }
 
 function handleSanitized(result) {
-  // Show success message and maybe reload
+  // Show success message and reload
   console.log('Sanitization applied:', result);
-  // Could trigger reload or update UI
+  loadSession();
+}
+
+async function handleFilesUpdated() {
+  // Reload session data after file operations
+  console.log('Files updated, reloading session...');
+  await loadSession();
+  console.log('Session reloaded after file update');
 }
 </script>
 
@@ -458,6 +537,25 @@ function handleSanitized(result) {
 
 .btn-small:hover {
   background: #764ba2;
+}
+
+.action-menu {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-danger-small {
+  padding: 0.4rem 0.8rem;
+  background: #d32f2f;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.btn-danger-small:hover {
+  background: #b71c1c;
 }
 
 .selected-count {

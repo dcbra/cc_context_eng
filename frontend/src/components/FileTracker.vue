@@ -2,16 +2,25 @@
   <div class="file-tracker">
     <div class="tracker-header">
       <h3>Files Read ({{ files.length }})</h3>
-      <div class="actions">
+      <div class="controls">
         <button @click="selectAllFiles" class="btn-small">Select All</button>
         <button @click="clearAllFiles" class="btn-small">Clear</button>
+        <span class="selected-count">{{ selectedCount }} selected</span>
+        <div v-if="selectedCount > 0" class="action-menu">
+          <button @click="removeAllSelectedInstances" class="btn-danger-small" :disabled="loading">Remove All</button>
+          <button @click="keepFirstReadOnly" class="btn-danger-small" :disabled="loading">Keep First Only</button>
+          <button @click="keepLastReadOnly" class="btn-danger-small" :disabled="loading">Keep Last Only</button>
+        </div>
       </div>
     </div>
+
+    <div v-if="loading" class="loading">Processing file operation...</div>
+    <div v-if="error" class="error">Error: {{ error }}</div>
 
     <div class="files-grid">
       <div v-if="files.length === 0" class="empty">No files read in this session</div>
 
-      <div v-for="file in files" :key="file.path" class="file-card">
+      <div v-for="file in files" :key="file.path" class="file-card" :class="{ selected: selectionStore.selectedFiles.has(file.path) }">
         <div class="file-header">
           <input
             type="checkbox"
@@ -44,16 +53,6 @@
           </div>
         </div>
 
-        <div class="file-actions">
-          <select @change="handleFileOption" class="option-select">
-            <option value="">-- Action --</option>
-            <option :value="file.path">Remove All Instances</option>
-            <option :value="'keep-first-' + file.path">Keep First Read Only</option>
-            <option :value="'keep-last-' + file.path">Keep Last Read Only</option>
-            <option :value="'remove-duplicates-' + file.path">Remove Duplicates</option>
-          </select>
-        </div>
-
         <div class="file-instances">
           <div class="instances-header">Instances ({{ file.instances.length }})</div>
           <div class="instances-list">
@@ -70,17 +69,24 @@
 </template>
 
 <script setup>
-import { defineProps } from 'vue';
+import { defineProps, ref, computed, defineEmits } from 'vue';
 import { useSelectionStore } from '../stores/selection.js';
 
 const props = defineProps({
   files: {
     type: Array,
     default: () => []
-  }
+  },
+  sessionId: String,
+  projectId: String
 });
 
+const emit = defineEmits(['files-updated']);
 const selectionStore = useSelectionStore();
+const loading = ref(false);
+const error = ref(null);
+
+const selectedCount = computed(() => selectionStore.selectedFileCount);
 
 function selectAllFiles() {
   selectionStore.selectAllFiles(props.files);
@@ -90,10 +96,140 @@ function clearAllFiles() {
   selectionStore.clearFiles();
 }
 
-function handleFileOption(event) {
-  const value = event.target.value;
-  // TODO: Implement keep-first, keep-last, remove-duplicates logic
-  event.target.value = '';
+async function removeAllSelectedInstances() {
+  if (selectedCount.value === 0) return;
+
+  if (!confirm(`Remove all instances of ${selectedCount.value} selected file(s)?`)) {
+    return;
+  }
+
+  try {
+    loading.value = true;
+    error.value = null;
+
+    console.log('Removing files:', Array.from(selectionStore.selectedFiles));
+    console.log('Session ID:', props.sessionId, 'Project ID:', props.projectId);
+
+    const response = await fetch(
+      `/api/sanitize/${props.sessionId}?projectId=${props.projectId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          removeMessages: [],
+          removeFiles: Array.from(selectionStore.selectedFiles),
+          criteria: {}
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('API error:', response.status, errorText);
+      throw new Error(`Failed to remove files: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log('Remove files result:', result);
+
+    selectionStore.clearFiles();
+    emit('files-updated');
+  } catch (err) {
+    console.error('Error removing files:', err);
+    error.value = err.message;
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function keepFirstReadOnly() {
+  if (selectedCount.value === 0) return;
+
+  if (!confirm(`Keep only first read for ${selectedCount.value} selected file(s)? Other instances will be removed.`)) {
+    return;
+  }
+
+  try {
+    loading.value = true;
+    error.value = null;
+
+    console.log('Keep first read only for files:', Array.from(selectionStore.selectedFiles));
+
+    const response = await fetch(
+      `/api/sanitize/${props.sessionId}?projectId=${props.projectId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          removeMessages: [],
+          removeFiles: Array.from(selectionStore.selectedFiles),
+          criteria: { keepFirstReadOnly: true }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('API error:', response.status, errorText);
+      throw new Error(`Failed to apply keep-first-only: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log('Keep first read only result:', result);
+
+    selectionStore.clearFiles();
+    emit('files-updated');
+  } catch (err) {
+    console.error('Error keeping first read only:', err);
+    error.value = err.message;
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function keepLastReadOnly() {
+  if (selectedCount.value === 0) return;
+
+  if (!confirm(`Keep only last read for ${selectedCount.value} selected file(s)? Other instances will be removed.`)) {
+    return;
+  }
+
+  try {
+    loading.value = true;
+    error.value = null;
+
+    console.log('Keep last read only for files:', Array.from(selectionStore.selectedFiles));
+
+    const response = await fetch(
+      `/api/sanitize/${props.sessionId}?projectId=${props.projectId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          removeMessages: [],
+          removeFiles: Array.from(selectionStore.selectedFiles),
+          criteria: { keepLastReadOnly: true }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('API error:', response.status, errorText);
+      throw new Error(`Failed to apply keep-last-only: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log('Keep last read only result:', result);
+
+    selectionStore.clearFiles();
+    emit('files-updated');
+  } catch (err) {
+    console.error('Error keeping last read only:', err);
+    error.value = err.message;
+  } finally {
+    loading.value = false;
+  }
 }
 
 function formatSize(bytes) {
@@ -132,9 +268,10 @@ function formatTime(timestamp) {
   color: #333;
 }
 
-.actions {
+.controls {
   display: flex;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 1rem;
 }
 
 .btn-small {
@@ -149,6 +286,35 @@ function formatTime(timestamp) {
 
 .btn-small:hover {
   background: #764ba2;
+}
+
+.action-menu {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-danger-small {
+  padding: 0.4rem 0.8rem;
+  background: #d32f2f;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.btn-danger-small:hover:not(:disabled) {
+  background: #b71c1c;
+}
+
+.btn-danger-small:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.selected-count {
+  font-size: 0.9rem;
+  color: #666;
 }
 
 .files-grid {
@@ -174,6 +340,11 @@ function formatTime(timestamp) {
   border-color: #667eea;
   background-color: #f0f4ff;
   box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+}
+
+.file-card.selected {
+  border-color: #667eea;
+  background-color: #e8eaf6;
 }
 
 .file-header {
@@ -279,5 +450,23 @@ function formatTime(timestamp) {
 .instance-size {
   color: #666;
   text-align: right;
+}
+
+.loading,
+.error {
+  text-align: center;
+  padding: 1rem;
+  border-radius: 4px;
+  margin-top: 1rem;
+}
+
+.loading {
+  color: #667eea;
+  background-color: #f0f4ff;
+}
+
+.error {
+  color: #d32f2f;
+  background-color: #ffebee;
 }
 </style>

@@ -1,15 +1,17 @@
 import express from 'express';
 import path from 'path';
 import os from 'os';
-import { sanitizeSession, calculateSanitizationImpact } from '../services/sanitizer.js';
+import fs from 'fs-extra';
+import { sanitizeSession, calculateSanitizationImpact, sessionToJsonl } from '../services/sanitizer.js';
 import { parseJsonlFile } from '../services/jsonl-parser.js';
+import { createBackup } from '../services/backup-manager.js';
 
 const router = express.Router();
 const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 
 /**
  * POST /api/sanitize/:sessionId
- * Apply sanitization rules
+ * Apply sanitization rules and save to file
  */
 router.post('/:sessionId', async (req, res, next) => {
   try {
@@ -27,12 +29,19 @@ router.post('/:sessionId', async (req, res, next) => {
     // Parse the session
     const parsed = await parseJsonlFile(sessionFilePath);
 
+    // Create backup before modifying
+    await createBackup(sessionId, projectId, parsed.messages, 'Auto-backup before sanitization');
+
     // Apply sanitization
     const result = sanitizeSession(parsed, {
       removeMessages: removeMessages || [],
       removeFiles: removeFiles || [],
       removeCriteria: criteria || {}
     });
+
+    // Save the sanitized session back to disk (preserving summary and file-history-snapshots)
+    const jsonlContent = sessionToJsonl(parsed, result.messages);
+    await fs.writeFile(sessionFilePath, jsonlContent, 'utf-8');
 
     res.json({
       success: true,
