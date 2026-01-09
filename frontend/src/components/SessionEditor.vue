@@ -68,7 +68,7 @@
 
               <div class="message-body">
                 <div class="message-header" @click="expandedMessageId = expandedMessageId === message.uuid ? null : message.uuid">
-                  <span class="message-type" :class="message.type">{{ message.type }}</span>
+                  <span class="message-type" :class="getMessageTypeClass(message)">{{ getMessageTypeLabel(message) }}</span>
                   <span class="message-time">{{ formatTime(message.timestamp) }}</span>
                   <span class="message-tokens">{{ message.tokens.total }} tokens</span>
                   <span v-if="message.toolUses.length > 0" class="message-tools">
@@ -77,18 +77,21 @@
                   <span class="expand-icon">{{ expandedMessageId === message.uuid ? '▼' : '▶' }}</span>
                 </div>
 
-                <div class="message-preview">
+                <div v-if="expandedMessageId !== message.uuid" class="message-preview">
                   {{ getPreview(message) }}
                 </div>
 
                 <!-- Expanded Content -->
                 <div v-if="expandedMessageId === message.uuid" class="message-expanded">
-                  <div v-for="(block, idx) in message.content" :key="idx" class="content-block">
+                  <div v-for="(block, idx) in getDisplayableContentBlocks(message.content)" :key="idx" class="content-block">
                     <div v-if="block.type === 'text'" class="text-block">
                       <div class="text-content" v-text="formatTextContent(block.text)"></div>
                     </div>
+                    <div v-else-if="block.type === 'thinking'" class="thinking-block">
+                      <div class="thinking-content" v-text="formatTextContent(block.thinking)"></div>
+                    </div>
                     <div v-else-if="block.type === 'tool_use'" class="tool-use-block">
-                      <div class="tool-header">🔧 Tool: {{ block.name }}</div>
+                      <div class="tool-name">{{ block.name }}</div>
                       <div v-if="block.input" class="tool-input">{{ JSON.stringify(block.input, null, 2) }}</div>
                     </div>
                     <div v-else-if="block.type === 'tool_result'" class="tool-result-block">
@@ -275,6 +278,40 @@ async function deleteSelectedMessages() {
   }
 }
 
+function getDisplayableContentBlocks(content) {
+  if (!Array.isArray(content)) return [];
+
+  // Filter out signature blocks, only show displayable block types
+  const displayableTypes = ['text', 'thinking', 'tool_use', 'tool_result'];
+  return content.filter(block => block && displayableTypes.includes(block.type));
+}
+
+function getMessageTypeLabel(message) {
+  // If the message contains a thinking block, show that
+  const content = Array.isArray(message.content) ? message.content : [];
+  if (content.some(c => c && c.type === 'thinking')) {
+    return 'thinking';
+  }
+  // If the message contains tool_use blocks, show that
+  if (message.toolUses && message.toolUses.length > 0) {
+    return 'tool';
+  }
+  return message.type;
+}
+
+function getMessageTypeClass(message) {
+  // Return the class based on the primary block type
+  const content = Array.isArray(message.content) ? message.content : [];
+  if (content.some(c => c && c.type === 'thinking')) {
+    return 'thinking';
+  }
+  // If the message contains tool_use blocks, show that
+  if (message.toolUses && message.toolUses.length > 0) {
+    return 'tool';
+  }
+  return message.type;
+}
+
 function getPreview(message) {
   try {
     // Ensure content is an array
@@ -284,6 +321,19 @@ function getPreview(message) {
       return 'Empty message';
     }
 
+    // Check for thinking block first
+    const thinkingBlock = content.find(c => c && c.type === 'thinking');
+    if (thinkingBlock && thinkingBlock.thinking) {
+      const text = String(thinkingBlock.thinking).substring(0, 150);
+      return text + (thinkingBlock.thinking.length > 150 ? '...' : '');
+    }
+
+    // Check for tool_use blocks
+    const toolUseBlock = content.find(c => c && c.type === 'tool_use');
+    if (toolUseBlock && toolUseBlock.name) {
+      return `Calling: ${toolUseBlock.name}`;
+    }
+
     // Find text content
     const textContent = content.find(c => c && c.type === 'text');
     if (textContent && textContent.text) {
@@ -291,7 +341,7 @@ function getPreview(message) {
       return text + (textContent.text.length > 150 ? '...' : '');
     }
 
-    // Fall back to tool use
+    // Fall back to message.toolUses
     if (message.toolUses && message.toolUses.length > 0) {
       const toolName = message.toolUses[0].name || 'unknown';
       return `Called ${toolName} tool`;
@@ -645,6 +695,16 @@ async function handleFilesUpdated() {
   color: #0d47a1;
 }
 
+.message-type.thinking {
+  background-color: #e1bee7;
+  color: #6a1b9a;
+}
+
+.message-type.tool {
+  background-color: #ffe0b2;
+  color: #e65100;
+}
+
 .message-time {
   color: #999;
   flex: 1;
@@ -748,9 +808,46 @@ async function handleFilesUpdated() {
   white-space: pre-wrap !important; /* Force preserve whitespace */
 }
 
+.thinking-block {
+  border-left-color: #9c27b0;
+  background-color: #f3e5f5;
+}
+
+.thinking-header {
+  font-weight: 600;
+  color: #6a1b9a;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.thinking-content {
+  margin: 0;
+  padding: 0.5rem;
+  background: white;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #333;
+  white-space: pre-wrap !important;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
 .tool-use-block {
   border-left-color: #ff9800;
   background-color: #fffbe6;
+}
+
+.tool-name {
+  font-weight: 600;
+  color: #e65100;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
 }
 
 .tool-result-block {
