@@ -1,6 +1,19 @@
 import express from 'express';
+import path from 'path';
+import os from 'os';
+import {
+  createBackup,
+  getBackupVersions,
+  restoreBackup,
+  deleteBackupVersion,
+  compareBackups,
+  getSessionBackupDir,
+  verifyBackupIntegrity
+} from '../services/backup-manager.js';
 
 const router = express.Router();
+
+const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 
 /**
  * POST /api/backup/:sessionId/save
@@ -8,8 +21,21 @@ const router = express.Router();
  */
 router.post('/:sessionId/save', async (req, res, next) => {
   try {
-    // Placeholder - implemented in Phase 4
-    res.status(501).json({ error: 'Not implemented yet' });
+    const { sessionId } = req.params;
+    const { projectId } = req.query;
+    const { messages, description } = req.body;
+
+    if (!sessionId || !projectId || !messages) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    const backupDir = getSessionBackupDir(projectId, sessionId);
+    const backup = await createBackup(sessionId, projectId, messages, description);
+
+    res.json({
+      success: true,
+      backup
+    });
   } catch (error) {
     next(error);
   }
@@ -21,8 +47,21 @@ router.post('/:sessionId/save', async (req, res, next) => {
  */
 router.get('/:sessionId/versions', async (req, res, next) => {
   try {
-    // Placeholder - implemented in Phase 4
-    res.status(501).json({ error: 'Not implemented yet' });
+    const { sessionId } = req.params;
+    const { projectId } = req.query;
+
+    if (!sessionId || !projectId) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    const backupDir = getSessionBackupDir(projectId, sessionId);
+    const versions = await getBackupVersions(backupDir);
+
+    res.json({
+      sessionId,
+      projectId,
+      versions
+    });
   } catch (error) {
     next(error);
   }
@@ -34,8 +73,91 @@ router.get('/:sessionId/versions', async (req, res, next) => {
  */
 router.post('/:sessionId/restore/:version', async (req, res, next) => {
   try {
-    // Placeholder - implemented in Phase 4
-    res.status(501).json({ error: 'Not implemented yet' });
+    const { sessionId, version } = req.params;
+    const { projectId } = req.query;
+
+    if (!sessionId || !projectId || !version) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    const sessionPath = path.join(PROJECTS_DIR, projectId, `${sessionId}.jsonl`);
+    const backupDir = getSessionBackupDir(projectId, sessionId);
+
+    const result = await restoreBackup(sessionPath, backupDir, parseInt(version));
+
+    res.json({
+      success: true,
+      result
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * DELETE /api/backup/:sessionId/versions/:version
+ * Delete a specific backup version
+ */
+router.delete('/:sessionId/versions/:version', async (req, res, next) => {
+  try {
+    const { sessionId, version } = req.params;
+    const { projectId } = req.query;
+
+    if (!sessionId || !projectId || !version) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    const backupDir = getSessionBackupDir(projectId, sessionId);
+    const result = await deleteBackupVersion(backupDir, parseInt(version));
+
+    res.json({ success: true, result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/backup/:sessionId/compare
+ * Compare two backup versions
+ */
+router.post('/:sessionId/compare', async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const { projectId } = req.query;
+    const { version1, version2 } = req.body;
+
+    if (!sessionId || !projectId || !version1 || !version2) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    const backupDir = getSessionBackupDir(projectId, sessionId);
+    const comparison = await compareBackups(backupDir, version1, version2);
+
+    res.json(comparison);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/backup/:sessionId/verify/:version
+ * Verify backup integrity
+ */
+router.get('/:sessionId/verify/:version', async (req, res, next) => {
+  try {
+    const { sessionId, version } = req.params;
+    const { projectId } = req.query;
+
+    if (!sessionId || !projectId || !version) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    const backupDir = getSessionBackupDir(projectId, sessionId);
+    const backupPath = path.join(backupDir, `v${version}.jsonl`);
+
+    const verification = await verifyBackupIntegrity(backupPath);
+
+    res.json(verification);
   } catch (error) {
     next(error);
   }
