@@ -310,22 +310,35 @@ function getMessageSource(message) {
       return 'tool-result';
     }
 
-    // Check if it's a meta/system message
-    if (message.isMeta === true) {
-      // Check if it's from an agent
+    // KEY PATTERN: Check the original record's message.content structure
+    // The backend parser stores the original record in message.raw
+    // - System messages have content as a STRING (commands, caveats, hooks)
+    // - User messages have content as an ARRAY of blocks [{type:"text",...}]
+    const originalContent = message.raw?.message?.content;
+
+    if (typeof originalContent === 'string') {
+      // Content is a string = system/command message
+      return 'system';
+    }
+
+    if (Array.isArray(originalContent)) {
+      // Content is an array = real user input
+      // But check if it's from an agent
       if (message.agentId) {
         return 'agent';
       }
-      // Check if it's from a command or hook
-      const contentStr = typeof message.message?.content === 'string'
-        ? message.message.content
-        : JSON.stringify(message.message?.content || '');
-      if (contentStr.includes('<command-name>') || contentStr.includes('Caveat:')) {
-        return 'system';
+      return 'user';
+    }
+
+    // Fallback: check isMeta flag from raw record
+    if (message.raw?.isMeta === true) {
+      if (message.agentId) {
+        return 'agent';
       }
       return 'system';
     }
-    // Regular user input
+
+    // Default to user if we can't determine
     return 'user';
   }
 
