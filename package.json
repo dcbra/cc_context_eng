@@ -1,0 +1,17 @@
+{
+  "name": "cc-context-manager",
+  "version": "0.1.0",
+  "description": "Claude Code context file manager and sanitizer",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "backend:dev": "cd backend && npm run dev",
+    "frontend:dev": "cd frontend && npm run dev",
+    "backend:build": "cd backend && npm run build",
+    "frontend:build": "cd frontend && npm run build",
+    "build": "npm run backend:build && npm run frontend:build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
