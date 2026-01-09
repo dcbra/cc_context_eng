@@ -2,12 +2,12 @@
   <div class="project-browser">
     <div class="browser-header">
       <h2>Projects</h2>
-      <div class="stats">{{ projects.length }} projects</div>
+      <div class="stats">{{ displayProjects.length }} projects</div>
     </div>
 
     <div v-if="loading" class="loading">Loading projects...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else-if="projects.length === 0" class="empty">
+    <div v-else-if="displayProjects.length === 0" class="empty">
       No projects found in ~/.claude/projects
     </div>
 
@@ -17,7 +17,7 @@
         :key="project.id"
         class="project-item"
         :class="{ 'single-project': isSingleProject }"
-        @click="!isSingleProject && (expandedProject = expandedProject === project.id ? null : project.id)"
+        @click="!isSingleProject && selectProject(project)"
       >
         <div class="project-header">
           <div class="project-name">{{ project.name }}</div>
@@ -94,22 +94,23 @@ onMounted(async () => {
 });
 
 async function expandProject(projectId) {
-  console.log('[ProjectBrowser] Expanding project:', projectId);
   if (!projectId) {
-    console.error('[ProjectBrowser] projectId is undefined!');
     return;
   }
   if (loadingSessions.value[projectId]) return;
 
   loadingSessions.value[projectId] = true;
   try {
-    console.log('[ProjectBrowser] Fetching sessions for projectId:', projectId);
     projectSessions.value[projectId] = await getProjectSessions(projectId);
   } catch (err) {
     error.value = err.message;
   } finally {
     loadingSessions.value[projectId] = false;
   }
+}
+
+function selectProject(project) {
+  emit('select', project);
 }
 
 async function selectSession(session, project) {
