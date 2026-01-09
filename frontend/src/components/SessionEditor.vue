@@ -64,8 +64,8 @@
                 />
               </div>
 
-              <div class="message-body" @click="expandedMessageId = expandedMessageId === message.uuid ? null : message.uuid">
-                <div class="message-header">
+              <div class="message-body">
+                <div class="message-header" @click="expandedMessageId = expandedMessageId === message.uuid ? null : message.uuid">
                   <span class="message-type" :class="message.type">{{ message.type }}</span>
                   <span class="message-time">{{ formatTime(message.timestamp) }}</span>
                   <span class="message-tokens">{{ message.tokens.total }} tokens</span>
@@ -517,6 +517,17 @@ function handleSanitized(result) {
   align-items: center;
   margin-bottom: 0.5rem;
   font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.message-header:hover {
+  background-color: rgba(102, 126, 234, 0.1);
+  border-radius: 3px;
+  padding: 0.25rem 0.5rem;
+  margin-left: -0.5rem;
 }
 
 .message-type {
@@ -560,7 +571,7 @@ function handleSanitized(result) {
   color: #666;
   line-height: 1.4;
   word-break: break-word;
-  cursor: pointer;
+  user-select: text;
 }
 
 .expand-icon {
@@ -613,6 +624,7 @@ function handleSanitized(result) {
   font-size: 0.85rem;
   min-width: 0;
   width: 100%;
+  user-select: text;
 }
 
 .text-block {
