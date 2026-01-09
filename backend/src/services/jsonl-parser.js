@@ -92,12 +92,17 @@ function enhanceMessage(record) {
   // Calculate token count
   const tokens = calculateTokens(record.message);
 
-  // Ensure content is always an array
+  // Ensure content is always an array of proper content blocks
   let contentArray = [];
   if (record.message?.content) {
-    contentArray = Array.isArray(record.message.content)
-      ? record.message.content
-      : [record.message.content];
+    if (Array.isArray(record.message.content)) {
+      contentArray = record.message.content;
+    } else if (typeof record.message.content === 'string') {
+      // Convert string content to a proper text block
+      contentArray = [{ type: 'text', text: record.message.content }];
+    } else {
+      contentArray = [record.message.content];
+    }
   }
 
   return {

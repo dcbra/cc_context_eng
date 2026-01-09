@@ -310,32 +310,40 @@ function getMessageSource(message) {
       return 'tool-result';
     }
 
-    // KEY PATTERN: Check the original record's message.content structure
-    // The backend parser stores the original record in message.raw
-    // - System messages have content as a STRING (commands, caveats, hooks)
-    // - User messages have content as an ARRAY of blocks [{type:"text",...}]
-    const originalContent = message.raw?.message?.content;
+    // Check if it's from an agent
+    if (message.agentId) {
+      return 'agent';
+    }
 
-    if (typeof originalContent === 'string') {
-      // Content is a string = system/command message
+    // Check for isMeta flag - these are system/framework messages
+    if (message.raw?.isMeta === true) {
       return 'system';
     }
 
+    // Array content = real user message (includes text, images, files, etc.)
+    const originalContent = message.raw?.message?.content;
     if (Array.isArray(originalContent)) {
-      // Content is an array = real user input
-      // But check if it's from an agent
-      if (message.agentId) {
-        return 'agent';
+      // Images and other media are always user messages
+      if (originalContent.some(c => c && (c.type === 'image' || c.type === 'file'))) {
+        return 'user';
       }
       return 'user';
     }
 
-    // Fallback: check isMeta flag from raw record
-    if (message.raw?.isMeta === true) {
-      if (message.agentId) {
-        return 'agent';
+    // Check string content for system patterns (commands, caveats, hooks)
+    if (typeof originalContent === 'string') {
+      // Check for known system message patterns
+      if (
+        originalContent.includes('<command-name>') ||
+        originalContent.includes('<local-command-') ||
+        originalContent.includes('<system-reminder>') ||
+        originalContent.includes('<user-prompt-submit-hook>') ||
+        originalContent.startsWith('Caveat:')
+      ) {
+        return 'system';
       }
-      return 'system';
+      // String content without system patterns = real user message
+      return 'user';
     }
 
     // Default to user if we can't determine
