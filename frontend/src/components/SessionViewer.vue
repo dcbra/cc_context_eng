@@ -121,10 +121,15 @@ const sessionData = ref(null);
 
 onMounted(async () => {
   try {
+    console.log('Loading session:', props.session.sessionId, 'from project:', props.session.projectId);
     sessionData.value = await getSession(props.session.sessionId, props.session.projectId);
+    if (!sessionData.value || !sessionData.value.messages) {
+      throw new Error('Invalid session data received');
+    }
     selectionStore.setAllMessages(sessionData.value.messages);
   } catch (err) {
-    error.value = err.message;
+    console.error('Error loading session:', err);
+    error.value = err.message || 'Failed to load session data';
   } finally {
     loading.value = false;
   }

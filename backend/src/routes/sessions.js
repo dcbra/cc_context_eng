@@ -1,10 +1,13 @@
 import express from 'express';
+import path from 'path';
+import os from 'os';
 import { parseJsonlFile, getMessageOrder } from '../services/jsonl-parser.js';
 import { trackFilesInSession } from '../services/file-tracker.js';
 import { analyzeSubagents } from '../services/subagent-analyzer.js';
 import { calculateTokenBreakdown } from '../services/token-calculator.js';
 
 const router = express.Router();
+const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 
 /**
  * GET /api/sessions/:sessionId
@@ -12,14 +15,18 @@ const router = express.Router();
  */
 router.get('/:sessionId', async (req, res, next) => {
   try {
-    const { sessionId, projectId } = req.query;
+    const { sessionId } = req.params;
+    const { projectId } = req.query;
 
     if (!sessionId || !projectId) {
       return res.status(400).json({ error: 'Missing sessionId or projectId' });
     }
 
+    // Construct full file path
+    const sessionFilePath = path.join(PROJECTS_DIR, projectId, `${sessionId}.jsonl`);
+
     // Parse the JSONL file
-    const parsed = await parseJsonlFile(sessionId);
+    const parsed = await parseJsonlFile(sessionFilePath);
 
     // Get message order
     const messageOrder = getMessageOrder(parsed);

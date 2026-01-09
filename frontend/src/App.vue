@@ -7,7 +7,7 @@
 
     <div class="app-container">
       <ProjectBrowser v-if="!currentSession" @select="selectSession" />
-      <SessionViewer v-else :session="currentSession" @close="currentSession = null" />
+      <SessionEditor v-else :session="currentSession" @close="currentSession = null" />
     </div>
   </div>
 </template>
@@ -15,7 +15,7 @@
 <script setup>
 import { ref } from 'vue';
 import ProjectBrowser from './components/ProjectBrowser.vue';
-import SessionViewer from './components/SessionViewer.vue';
+import SessionEditor from './components/SessionEditor.vue';
 
 const currentSession = ref(null);
 

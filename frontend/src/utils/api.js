@@ -13,8 +13,14 @@ export async function getProjectSessions(projectId) {
 }
 
 export async function getSession(sessionId, projectId) {
-  const response = await fetch(`${API_BASE}/sessions/${sessionId}?projectId=${projectId}`);
-  if (!response.ok) throw new Error('Failed to fetch session');
+  if (!sessionId || !projectId) {
+    throw new Error('sessionId and projectId are required');
+  }
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}?projectId=${encodeURIComponent(projectId)}`);
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to fetch session (${response.status}): ${text}`);
+  }
   return response.json();
 }
 

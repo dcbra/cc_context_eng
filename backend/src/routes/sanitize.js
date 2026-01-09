@@ -1,8 +1,11 @@
 import express from 'express';
+import path from 'path';
+import os from 'os';
 import { sanitizeSession, calculateSanitizationImpact } from '../services/sanitizer.js';
 import { parseJsonlFile } from '../services/jsonl-parser.js';
 
 const router = express.Router();
+const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 
 /**
  * POST /api/sanitize/:sessionId
@@ -18,8 +21,11 @@ router.post('/:sessionId', async (req, res, next) => {
       return res.status(400).json({ error: 'Missing sessionId or projectId' });
     }
 
+    // Construct full file path
+    const sessionFilePath = path.join(PROJECTS_DIR, projectId, `${sessionId}.jsonl`);
+
     // Parse the session
-    const parsed = await parseJsonlFile(sessionId);
+    const parsed = await parseJsonlFile(sessionFilePath);
 
     // Apply sanitization
     const result = sanitizeSession(parsed, {
