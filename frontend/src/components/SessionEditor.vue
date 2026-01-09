@@ -56,7 +56,12 @@
               v-for="(message, index) in sessionData.messages"
               :key="message.uuid"
               class="message-card"
-              :class="{ selected: selectionStore.selectedMessages.has(message.uuid), expanded: expandedMessageId === message.uuid }"
+              :class="{
+                selected: selectionStore.selectedMessages.has(message.uuid),
+                expanded: expandedMessageId === message.uuid,
+                'is-user-input': getMessageSource(message) === 'user',
+                'is-system': getMessageSource(message) === 'system' || getMessageSource(message) === 'agent'
+              }"
             >
               <div class="message-checkbox">
                 <input
@@ -286,29 +291,100 @@ function getDisplayableContentBlocks(content) {
   return content.filter(block => block && displayableTypes.includes(block.type));
 }
 
+function getMessageSource(message) {
+  // Determine the actual source of the message
+  // 'user' = actual user input
+  // 'assistant' = Claude's response
+  // 'system' = system/meta message (from hooks, commands, etc)
+  // 'agent' = from spawned agent
+  // 'tool-result' = tool execution result
+
+  if (message.type === 'assistant') {
+    return 'assistant';
+  }
+
+  if (message.type === 'user') {
+    // Check if it's a tool result message first
+    const content = Array.isArray(message.content) ? message.content : [];
+    if (content.some(c => c && c.type === 'tool_result')) {
+      return 'tool-result';
+    }
+
+    // Check if it's a meta/system message
+    if (message.isMeta === true) {
+      // Check if it's from an agent
+      if (message.agentId) {
+        return 'agent';
+      }
+      // Check if it's from a command or hook
+      const contentStr = typeof message.message?.content === 'string'
+        ? message.message.content
+        : JSON.stringify(message.message?.content || '');
+      if (contentStr.includes('<command-name>') || contentStr.includes('Caveat:')) {
+        return 'system';
+      }
+      return 'system';
+    }
+    // Regular user input
+    return 'user';
+  }
+
+  return message.type;
+}
+
 function getMessageTypeLabel(message) {
-  // If the message contains a thinking block, show that
-  const content = Array.isArray(message.content) ? message.content : [];
-  if (content.some(c => c && c.type === 'thinking')) {
-    return 'thinking';
+  const source = getMessageSource(message);
+
+  // Tool result has its own label
+  if (source === 'tool-result') {
+    return 'tool result';
   }
-  // If the message contains tool_use blocks, show that
-  if (message.toolUses && message.toolUses.length > 0) {
-    return 'tool';
+
+  // For user input or assistant, check for special content types
+  if (source === 'user' || source === 'assistant') {
+    const content = Array.isArray(message.content) ? message.content : [];
+    if (content.some(c => c && c.type === 'thinking')) {
+      return 'thinking';
+    }
+    if (message.toolUses && message.toolUses.length > 0) {
+      return 'tool';
+    }
   }
+
+  // Return source-based label
+  if (source === 'user') return 'you';
+  if (source === 'system') return 'system';
+  if (source === 'agent') return 'agent';
+  if (source === 'assistant') return 'assistant';
+
   return message.type;
 }
 
 function getMessageTypeClass(message) {
-  // Return the class based on the primary block type
-  const content = Array.isArray(message.content) ? message.content : [];
-  if (content.some(c => c && c.type === 'thinking')) {
-    return 'thinking';
+  const source = getMessageSource(message);
+
+  // Tool result has its own class
+  if (source === 'tool-result') {
+    return 'tool-result';
   }
-  // If the message contains tool_use blocks, show that
-  if (message.toolUses && message.toolUses.length > 0) {
-    return 'tool';
+
+  // Check for special content types first (thinking and tool blocks take priority)
+  if (source === 'user' || source === 'assistant') {
+    const content = Array.isArray(message.content) ? message.content : [];
+    if (content.some(c => c && c.type === 'thinking')) {
+      return 'thinking';
+    }
+    if (message.toolUses && message.toolUses.length > 0) {
+      return 'tool';
+    }
   }
+
+  // Return source-based class
+  if (source === 'user') return 'you';
+  if (source === 'system') return 'system';
+  if (source === 'agent') return 'agent';
+  if (source === 'assistant') return 'assistant';
+
   return message.type;
 }
 
@@ -642,6 +718,25 @@ async function handleFilesUpdated() {
   background-color: #e8eaf6;
 }
 
+.message-card.is-user-input {
+  border-left: 4px solid #4caf50;
+  background-color: #f1f8e9;
+}
+
+.message-card.is-user-input:hover {
+  background-color: #e8f5e9;
+  border-left-color: #388e3c;
+}
+
+.message-card.is-user-input.selected {
+  background-color: #dcedc8;
+  border-left-color: #2e7d32;
+}
+
+.message-card.is-system {
+  opacity: 0.85;
+}
+
 .message-checkbox {
   display: flex;
   align-items: flex-start;
@@ -703,6 +798,31 @@ async function handleFilesUpdated() {
 .message-type.tool {
   background-color: #ffe0b2;
   color: #e65100;
+}
+
+.message-type.you {
+  background-color: #c8e6c9;
+  color: #1b5e20;
+  font-weight: 700;
+}
+
+.message-type.system {
+  background-color: #f3e5f5;
+  color: #6a1b9a;
+}
+
+.message-type.agent {
+  background-color: #e0e0e0;
+  color: #424242;
+}
+
+.message-type.tool-result {
+  background-color: #e65100;
+  color: #ffe0b2;
+  padding: 0.2rem 0.4rem;
+  border-radius: 2px;
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
 .message-time {
@@ -881,8 +1001,7 @@ async function handleFilesUpdated() {
   white-space: pre-wrap !important;
   word-wrap: break-word;
   word-break: break-word;
-  overflow-wrap: break-word;
-  width: 100%;
+  overflow-wrap: break-word;  
   box-sizing: border-box;
   display: block;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
