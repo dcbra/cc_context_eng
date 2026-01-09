@@ -117,10 +117,12 @@ async function listSessions(projectPath, projectId) {
 /**
  * Decode project path from encoded name
  * e.g., -home-dac-github-project -> /home/dac/github/project
+ * Normalizes backslashes (from Windows) to forward slashes for display
  */
 function decodeProjectPath(projectId) {
   if (!projectId.startsWith('-')) return projectId;
-  return '/' + projectId.slice(1).replace(/-/g, '/');
+  // Decode hyphens to slashes and normalize any backslashes to forward slashes
+  return '/' + projectId.slice(1).replace(/-/g, '/').replace(/\\/g, '/');
 }
 
 export default router;
