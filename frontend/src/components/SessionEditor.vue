@@ -83,18 +83,18 @@
                 <div v-if="expandedMessageId === message.uuid" class="message-expanded">
                   <div v-for="(block, idx) in message.content" :key="idx" class="content-block">
                     <div v-if="block.type === 'text'" class="text-block">
-                      <p>{{ block.text }}</p>
+                      <div class="text-content">{{ formatTextContent(block.text) }}</div>
                     </div>
                     <div v-else-if="block.type === 'tool_use'" class="tool-use-block">
                       <div class="tool-header">🔧 Tool: {{ block.name }}</div>
-                      <pre v-if="block.input" class="tool-input">{{ JSON.stringify(block.input, null, 2) }}</pre>
+                      <div v-if="block.input" class="tool-input">{{ JSON.stringify(block.input, null, 2) }}</div>
                     </div>
                     <div v-else-if="block.type === 'tool_result'" class="tool-result-block">
                       <div class="tool-header">📋 Result</div>
-                      <pre class="tool-result">{{ typeof block.content === 'string' ? block.content.substring(0, 500) : JSON.stringify(block.content, null, 2) }}</pre>
+                      <div class="tool-result">{{ formatTextContent(typeof block.content === 'string' ? block.content.substring(0, 1000) : JSON.stringify(block.content, null, 2)) }}</div>
                     </div>
                     <div v-else class="unknown-block">
-                      <pre>{{ JSON.stringify(block, null, 2) }}</pre>
+                      <div class="unknown-content">{{ JSON.stringify(block, null, 2) }}</div>
                     </div>
                   </div>
 
@@ -244,6 +244,19 @@ function formatSize(bytes) {
 function formatTime(timestamp) {
   const date = new Date(timestamp);
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatTextContent(text) {
+  if (!text) return '';
+
+  // Convert escape sequences to actual formatting
+  let formatted = String(text)
+    .replace(/\\n/g, '\n')           // Convert \n to newlines
+    .replace(/\\t/g, '\t')           // Convert \t to tabs
+    .replace(/\\r/g, '\r')           // Convert \r to carriage returns
+    .replace(/\\\\/g, '\\');         // Convert \\ to single \
+
+  return formatted;
 }
 
 function handleSanitized(result) {
@@ -559,13 +572,17 @@ function handleSanitized(result) {
 .text-block {
   border-left-color: #667eea;
   color: #333;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
-.text-block p {
+.text-content {
   margin: 0;
   white-space: pre-wrap;
   word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.6;
+  font-size: 0.9rem;
 }
 
 .tool-use-block {
@@ -591,15 +608,20 @@ function handleSanitized(result) {
 }
 
 .tool-input,
-.tool-result {
+.tool-result,
+.unknown-content {
   margin: 0;
   padding: 0.5rem;
   background: white;
   border-radius: 3px;
-  overflow-x: auto;
   font-size: 0.8rem;
-  line-height: 1.3;
+  line-height: 1.4;
   color: #333;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
 }
 
 .files-referenced {
