@@ -71,6 +71,8 @@ function enhanceMessage(record) {
     const contentArray = Array.isArray(record.message.content) ? record.message.content : [record.message.content];
 
     for (const block of contentArray) {
+      if (!block) continue; // Skip null/undefined blocks
+
       if (block.type === 'tool_use') {
         toolUses.push(block);
         // Extract file paths from tool inputs
@@ -90,6 +92,14 @@ function enhanceMessage(record) {
   // Calculate token count
   const tokens = calculateTokens(record.message);
 
+  // Ensure content is always an array
+  let contentArray = [];
+  if (record.message?.content) {
+    contentArray = Array.isArray(record.message.content)
+      ? record.message.content
+      : [record.message.content];
+  }
+
   return {
     // Message identity
     uuid: record.uuid,
@@ -106,7 +116,7 @@ function enhanceMessage(record) {
     version: record.version,
 
     // Message content
-    content: record.message?.content || [],
+    content: contentArray,
     model: record.message?.model || null,
     toolUses,
     toolResults,

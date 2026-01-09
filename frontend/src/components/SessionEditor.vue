@@ -174,18 +174,33 @@ function clearAllMessages() {
 }
 
 function getPreview(message) {
-  const content = message.content || [];
-  const textContent = content.find(c => c.type === 'text');
+  try {
+    // Ensure content is an array
+    const content = Array.isArray(message.content) ? message.content : [];
 
-  if (textContent) {
-    return textContent.text.substring(0, 150) + (textContent.text.length > 150 ? '...' : '');
+    if (content.length === 0 && (!message.toolUses || message.toolUses.length === 0)) {
+      return 'Empty message';
+    }
+
+    // Find text content
+    const textContent = content.find(c => c && c.type === 'text');
+    if (textContent && textContent.text) {
+      const text = String(textContent.text).substring(0, 150);
+      return text + (textContent.text.length > 150 ? '...' : '');
+    }
+
+    // Fall back to tool use
+    if (message.toolUses && message.toolUses.length > 0) {
+      const toolName = message.toolUses[0].name || 'unknown';
+      return `Called ${toolName} tool`;
+    }
+
+    // Fallback
+    return 'No preview available';
+  } catch (error) {
+    console.error('Error generating preview:', error);
+    return 'Error generating preview';
   }
-
-  if (message.toolUses.length > 0) {
-    return `Called ${message.toolUses[0].name} tool`;
-  }
-
-  return 'Empty message';
 }
 
 function formatSize(bytes) {
