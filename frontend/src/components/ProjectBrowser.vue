@@ -13,14 +13,15 @@
 
     <div v-else class="projects-list">
       <div
-        v-for="project in projects"
+        v-for="project in displayProjects"
         :key="project.id"
         class="project-item"
-        @click="expandedProject = expandedProject === project.id ? null : project.id"
+        :class="{ 'single-project': isSingleProject }"
+        @click="!isSingleProject && (expandedProject = expandedProject === project.id ? null : project.id)"
       >
         <div class="project-header">
           <div class="project-name">{{ project.name }}</div>
-          <div class="project-meta">
+          <div class="project-meta" v-if="!isSingleProject">
             {{ project.sessionCount }} session{{ project.sessionCount !== 1 ? 's' : '' }}
           </div>
         </div>
@@ -53,8 +54,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, computed } from 'vue';
 import { getProjects, getProjectSessions } from '../utils/api.js';
+
+const props = defineProps({
+  project: {
+    type: Object,
+    default: null
+  }
+});
 
 const emit = defineEmits(['select']);
 
@@ -65,9 +73,19 @@ const expandedProject = ref(null);
 const loading = ref(true);
 const error = ref(null);
 
+// If a specific project is passed, show sessions for that project
+const isSingleProject = computed(() => !!props.project);
+const displayProjects = computed(() => props.project ? [props.project] : projects.value);
+
 onMounted(async () => {
   try {
-    projects.value = await getProjects();
+    if (!props.project) {
+      projects.value = await getProjects();
+    } else {
+      // Load sessions for the specific project
+      await expandProject(props.project.id);
+      expandedProject.value = props.project.id;
+    }
   } catch (err) {
     error.value = err.message;
   } finally {
