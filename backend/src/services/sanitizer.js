@@ -91,27 +91,35 @@ function removeSelectedMessages(messages, messagesToRemove, messageGraph) {
     // Create a copy of the message
     const updatedMessage = { ...message };
 
+    // Track if parent was removed (message is now orphaned from its tool_use)
+    const parentWasRemoved = parent !== message.parentUuid;
+
     // Update parentUuid to skip removed messages
-    if (parent !== message.parentUuid) {
+    if (parentWasRemoved) {
       updatedMessage.parentUuid = parent;
     }
 
     // Convert orphaned tool_use/tool_result blocks to text (preserving content but removing tool structure)
+    // This handles STANDARD Claude API format (tool_result content blocks)
     if (orphanedToolUseIds.size > 0 && updatedMessage.content) {
       updatedMessage.content = updatedMessage.content.map(block => {
         if (block.type === 'tool_result' && orphanedToolUseIds.has(block.tool_use_id)) {
-          console.log('[removeSelectedMessages] Converting orphaned tool_result to text:', block.tool_use_id);
-          // Convert tool_result to text block, preserving the content
+          // Convert tool_result to text block, preserving the content AND original type
           const content = typeof block.content === 'string'
             ? block.content
             : JSON.stringify(block.content, null, 2);
-          return { type: 'text', text: content };
+          const convertedBlock = { type: 'text', text: content, converted_from: 'tool_result' };
+          console.log('[removeSelectedMessages] Converting orphaned tool_result (API format) to text:', {
+            tool_use_id: block.tool_use_id,
+            convertedBlock: { type: convertedBlock.type, converted_from: convertedBlock.converted_from }
+          });
+          return convertedBlock;
         }
         if (block.type === 'tool_use' && orphanedToolUseIds.has(block.id)) {
           console.log('[removeSelectedMessages] Converting orphaned tool_use to text:', block.id);
-          // Convert tool_use to text block, preserving the reasoning/intent
+          // Convert tool_use to text block, preserving the reasoning/intent AND original type
           const inputStr = block.input ? JSON.stringify(block.input, null, 2) : '';
-          return { type: 'text', text: `[${block.name}]\n${inputStr}` };
+          return { type: 'text', text: `[${block.name}]\n${inputStr}`, converted_from: 'tool_use' };
         }
         return block;
       });
@@ -123,6 +131,22 @@ function removeSelectedMessages(messages, messagesToRemove, messageGraph) {
       if (updatedMessage.toolResults) {
         updatedMessage.toolResults = updatedMessage.toolResults.filter(t => !orphanedToolUseIds.has(t.tool_use_id));
       }
+    }
+
+    // Handle CLAUDE CODE format: tool results with toolUseResult field (not tool_result content blocks)
+    // When parent (tool_use message) is removed, mark text content as converted tool_result
+    const hasToolUseResult = updatedMessage.raw?.toolUseResult != null;
+    if (parentWasRemoved && hasToolUseResult && updatedMessage.content) {
+      console.log('[removeSelectedMessages] Converting orphaned tool_result (Claude Code format):', {
+        uuid: updatedMessage.uuid,
+        hasToolUseResult: true
+      });
+      updatedMessage.content = updatedMessage.content.map(block => {
+        if (block.type === 'text' && !block.converted_from) {
+          return { ...block, converted_from: 'tool_result' };
+        }
+        return block;
+      });
     }
 
     kept.push(updatedMessage);
@@ -208,15 +232,126 @@ function removeFileContent(messages, filesToRemove) {
 }
 
 /**
- * Apply additional sanitization criteria
+ * Detect message type (tool, tool-result, thinking, assistant, you)
+ * Matches frontend logic from SessionEditor.vue
+ * Also handles converted blocks that preserve semantic type via converted_from property
+ */
+function getMessageType(message) {
+  const content = Array.isArray(message.content) ? message.content : [];
+
+  // Priority order matches SessionEditor.vue logic
+  // 1. Standard Claude API format: tool_result content blocks
+  if (content.some(c => c && c.type === 'tool_result')) return 'tool-result';
+  // 2. Converted tool_result blocks (preserved semantic type)
+  if (content.some(c => c && c.type === 'text' && c.converted_from === 'tool_result')) {
+    console.log('[getMessageType] Detected converted tool_result:', message.uuid);
+    return 'tool-result';
+  }
+  // 3. Claude Code format: toolUseResult field at message level
+  if (message.raw?.toolUseResult != null) {
+    console.log('[getMessageType] Detected toolUseResult field:', message.uuid);
+    return 'tool-result';
+  }
+
+  if (content.some(c => c && c.type === 'thinking')) return 'thinking';
+
+  // Check for actual tool_use blocks or toolUses array
+  if (message.toolUses && message.toolUses.length > 0) return 'tool';
+  // Check for converted tool_use blocks (preserved semantic type)
+  if (content.some(c => c && c.type === 'text' && c.converted_from === 'tool_use')) return 'tool';
+
+  if (message.type === 'assistant') return 'assistant';
+
+  if (message.type === 'user') {
+    // Filter out system messages
+    const originalContent = message.raw?.message?.content;
+    if (typeof originalContent === 'string') {
+      if (
+        originalContent.includes('<command-name>') ||
+        originalContent.includes('<system-reminder>') ||
+        originalContent.includes('<user-prompt-submit-hook>') ||
+        originalContent.startsWith('Caveat:')
+      ) {
+        return null;
+      }
+    }
+    return 'you';
+  }
+
+  return null;
+}
+
+/**
+ * Apply additional sanitization criteria with priority system
+ * Priority: Manual selections > Percentage range + Message type filter (REMOVE) > Content criteria
  */
 function applySanitizationCriteria(messages, criteria) {
-  return messages.map((message, index) => {
+  // PRIORITY 1: Manual selections override everything - REMOVE selected messages
+  if (criteria.manuallySelected && criteria.manuallySelected.length > 0) {
+    const selectedSet = new Set(criteria.manuallySelected);
+    return messages.filter(m => !selectedSet.has(m.uuid));
+  }
+
+  let workingSet = [...messages];
+
+  // PRIORITY 2: Apply percentage range (select oldest X%) - mark for potential removal
+  let inRangeSet = new Set();
+  if (criteria.percentageRange > 0) {
+    const sortedByTime = [...workingSet].sort((a, b) =>
+      new Date(a.timestamp) - new Date(b.timestamp)
+    );
+    const cutoffIndex = Math.floor(sortedByTime.length * (criteria.percentageRange / 100));
+    inRangeSet = new Set(sortedByTime.slice(0, cutoffIndex).map(m => m.uuid));
+  }
+
+  // PRIORITY 3: Message type filter - REMOVE messages of selected types (within range)
+  if (criteria.messageTypes && criteria.messageTypes.length > 0) {
+    const typesSet = new Set(criteria.messageTypes);
+    workingSet = workingSet.filter(m => {
+      // If percentage range is set and message is not in range, keep it
+      if (criteria.percentageRange > 0 && !inRangeSet.has(m.uuid)) {
+        return true; // Keep messages outside the range
+      }
+      // Check message type - REMOVE if it matches selected types
+      const messageType = getMessageType(m);
+      const shouldRemove = typesSet.has(messageType);
+
+      // Debug logging for tool results
+      if (m.raw?.toolUseResult != null || messageType === 'tool-result') {
+        console.log('[applySanitizationCriteria] Tool result detection:', {
+          uuid: m.uuid,
+          messageType,
+          hasToolUseResult: m.raw?.toolUseResult != null,
+          hasConvertedFrom: m.content?.some(c => c?.converted_from === 'tool_result'),
+          selectedTypes: Array.from(typesSet),
+          shouldRemove
+        });
+      }
+
+      if (shouldRemove) {
+        return false; // Remove this message
+      }
+      return true; // Keep messages that don't match
+    });
+  }
+
+  // PRIORITY 4: Apply content-based criteria to remaining messages
+  return workingSet.map((message, index) => {
     let updated = { ...message };
+
+    // Check if message is in range for content criteria
+    const isInRange = criteria.percentageRange === 0 ||
+                      criteria.percentageRange === undefined ||
+                      inRangeSet.has(message.uuid);
+
+    // Only apply content criteria if in range (or no range specified)
+    if (!isInRange) {
+      return updated;
+    }
 
     // Remove error tool results
     if (criteria.removeErrors) {
-      updated.toolResults = updated.toolResults.filter(result => !result.is_error);
+      updated.toolResults = (updated.toolResults || []).filter(result => !result.is_error);
       updated.content = (updated.content || []).filter(block => {
         if (block.type === 'tool_result' && block.is_error) {
           return false;
@@ -225,15 +360,16 @@ function applySanitizationCriteria(messages, criteria) {
       });
     }
 
-    // Remove verbose assistant text (keep only short summaries)
+    // Remove verbose assistant text with configurable threshold
     if (criteria.removeVerbose && message.type === 'assistant') {
+      const threshold = criteria.verboseThreshold || 500;
+      const keepChars = Math.floor(threshold * 0.4);
       updated.content = (updated.content || []).map(block => {
         if (block.type === 'text') {
-          // Keep only first 200 chars if verbose
-          if (block.text && block.text.length > 500) {
+          if (block.text && block.text.length > threshold) {
             return {
               ...block,
-              text: block.text.substring(0, 200) + '...\n[verbose content removed for context reduction]'
+              text: block.text.substring(0, keepChars) + '...\n[verbose content removed for context reduction]'
             };
           }
         }
@@ -243,13 +379,14 @@ function applySanitizationCriteria(messages, criteria) {
 
     // Remove duplicate file reads
     if (criteria.removeDuplicateFileReads && index > 0) {
-      const prevMessage = messages[index - 1];
+      const prevMessage = workingSet[index - 1];
+      if (!prevMessage) return updated;
 
       // Check if both are Read operations on the same file
       if (
         message.type === 'assistant' &&
         prevMessage.type === 'user' &&
-        message.toolUses.length === 1
+        message.toolUses && message.toolUses.length === 1
       ) {
         const toolUse = message.toolUses[0];
         if (toolUse.name === 'Read') {
@@ -257,16 +394,14 @@ function applySanitizationCriteria(messages, criteria) {
 
           // Check if previous messages also read this file
           for (let i = index - 2; i >= Math.max(0, index - 5); i--) {
-            const checkMessage = messages[i];
-            if (
+            const checkMessage = workingSet[i];
+            if (checkMessage && checkMessage.toolUses &&
               checkMessage.toolUses.some(
                 t =>
                   t.name === 'Read' &&
                   t.input?.file_path === filePath
               )
             ) {
-              // Mark this message for removal? Or just skip
-              // For now, we'll keep it but remove the content
               updated.content = (updated.content || []).map(block => {
                 if (block.type === 'tool_result') {
                   return {

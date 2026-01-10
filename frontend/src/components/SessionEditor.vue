@@ -337,7 +337,19 @@ function getMessageSource(message) {
   if (message.type === 'user') {
     // Check if it's a tool result message first
     const content = Array.isArray(message.content) ? message.content : [];
+
+    // 1. Standard Claude API format: tool_result content blocks
     if (content.some(c => c && c.type === 'tool_result')) {
+      return 'tool-result';
+    }
+
+    // 2. Converted tool_result blocks (after tool_use deletion)
+    if (content.some(c => c && c.type === 'text' && c.converted_from === 'tool_result')) {
+      return 'tool-result';
+    }
+
+    // 3. Claude Code format: toolUseResult field at message level
+    if (message.raw?.toolUseResult != null) {
       return 'tool-result';
     }
 
@@ -401,6 +413,10 @@ function getMessageTypeLabel(message) {
     if (message.toolUses && message.toolUses.length > 0) {
       return 'tool';
     }
+    // Check for converted tool_use blocks
+    if (content.some(c => c && c.type === 'text' && c.converted_from === 'tool_use')) {
+      return 'tool';
+    }
   }
 
   // Return source-based label
@@ -427,6 +443,10 @@ function getMessageTypeClass(message) {
       return 'thinking';
     }
     if (message.toolUses && message.toolUses.length > 0) {
+      return 'tool';
+    }
+    // Check for converted tool_use blocks
+    if (content.some(c => c && c.type === 'text' && c.converted_from === 'tool_use')) {
       return 'tool';
     }
   }
