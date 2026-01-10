@@ -103,6 +103,14 @@
                       <div class="tool-header">📋 Result</div>
                       <div class="tool-result" v-text="formatTextContent(typeof block.content === 'string' ? block.content.substring(0, 1000) : JSON.stringify(block.content, null, 2))"></div>
                     </div>
+                    <div v-else-if="block.type === 'image'" class="image-block">
+                      <img
+                        :src="getImageSrc(block)"
+                        class="image-preview"
+                        @click="expandedImage = getImageSrc(block)"
+                        title="Click to expand"
+                      />
+                    </div>
                     <div v-else class="unknown-block">
                       <div class="unknown-content">{{ JSON.stringify(block, null, 2) }}</div>
                     </div>
@@ -159,6 +167,14 @@
         />
       </div>
     </div>
+
+    <!-- Image Modal -->
+    <div v-if="expandedImage" class="image-modal" @click="expandedImage = null">
+      <div class="image-modal-content" @click.stop>
+        <button class="image-modal-close" @click="expandedImage = null">&times;</button>
+        <img :src="expandedImage" class="image-full" />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -187,6 +203,7 @@ const loading = ref(true);
 const error = ref(null);
 const expandedMessageId = ref(null);
 const lastSelectedIndex = ref(null);
+const expandedImage = ref(null);
 
 const selectedCount = computed(() => selectionStore.selectedMessageCount);
 
@@ -287,8 +304,22 @@ function getDisplayableContentBlocks(content) {
   if (!Array.isArray(content)) return [];
 
   // Filter out signature blocks, only show displayable block types
-  const displayableTypes = ['text', 'thinking', 'tool_use', 'tool_result'];
+  const displayableTypes = ['text', 'thinking', 'tool_use', 'tool_result', 'image'];
   return content.filter(block => block && displayableTypes.includes(block.type));
+}
+
+function getImageSrc(block) {
+  // Handle base64 encoded images
+  if (block.source?.type === 'base64') {
+    const mediaType = block.source.media_type || 'image/png';
+    return `data:${mediaType};base64,${block.source.data}`;
+  }
+  // Handle URL images
+  if (block.source?.type === 'url') {
+    return block.source.url;
+  }
+  // Fallback
+  return '';
 }
 
 function getMessageSource(message) {
@@ -999,6 +1030,70 @@ async function handleFilesUpdated() {
 .unknown-block {
   border-left-color: #999;
   background-color: #fafafa;
+}
+
+.image-block {
+  padding: 0.5rem;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+}
+
+.image-preview {
+  max-width: 200px;
+  max-height: 150px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  border: 1px solid #ddd;
+}
+
+.image-preview:hover {
+  transform: scale(1.02);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Image Modal */
+.image-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.image-modal-content {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+
+.image-modal-close {
+  position: absolute;
+  top: -40px;
+  right: 0;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 2rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  line-height: 1;
+}
+
+.image-modal-close:hover {
+  color: #ff5555;
+}
+
+.image-full {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 4px;
 }
 
 .tool-header {
