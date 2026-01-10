@@ -49,6 +49,21 @@ export const useNavigationStore = defineStore('navigation', () => {
         const state = JSON.parse(saved);
         history.value = state.history || [];
         currentView.value = state.currentView || null;
+
+        // Fix old projectIds that are missing the leading dash
+        if (currentView.value?.data?.projectId && !currentView.value.data.projectId.startsWith('-')) {
+          currentView.value.data.projectId = '-' + currentView.value.data.projectId;
+        }
+
+        // Also fix in history
+        for (const view of history.value) {
+          if (view.data?.projectId && !view.data.projectId.startsWith('-')) {
+            view.data.projectId = '-' + view.data.projectId;
+          }
+        }
+
+        // Re-persist the fixed state
+        persistState();
       }
     } catch (error) {
       console.error('Error restoring navigation state:', error);
