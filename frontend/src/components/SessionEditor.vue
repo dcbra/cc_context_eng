@@ -60,7 +60,8 @@
                 selected: selectionStore.selectedMessages.has(message.uuid),
                 expanded: expandedMessageId === message.uuid,
                 'is-user-input': getMessageSource(message) === 'user',
-                'is-system': getMessageSource(message) === 'system' || getMessageSource(message) === 'agent'
+                'is-system': getMessageSource(message) === 'system' || getMessageSource(message) === 'agent',
+                'is-duplicate': isDuplicate(message.uuid)
               }"
             >
               <div class="message-checkbox">
@@ -147,6 +148,7 @@
           :projectId="session.projectId"
           :sessionData="sessionData"
           @sanitized="handleSanitized"
+          @duplicatesFound="handleDuplicatesFound"
         />
       </div>
 
@@ -204,6 +206,12 @@ const error = ref(null);
 const expandedMessageId = ref(null);
 const lastSelectedIndex = ref(null);
 const expandedImage = ref(null);
+const duplicateUuidsMap = ref({}); // Track duplicate message UUIDs for highlighting (object for reactivity)
+
+// Check if a message is a duplicate
+function isDuplicate(uuid) {
+  return !!duplicateUuidsMap.value[uuid];
+}
 
 const selectedCount = computed(() => selectionStore.selectedMessageCount);
 
@@ -546,7 +554,19 @@ function formatTextContent(text) {
 function handleSanitized(result) {
   // Show success message and reload
   console.log('Sanitization applied:', result);
+  // Clear duplicate highlighting when session is modified
+  duplicateUuidsMap.value = {};
   loadSession();
+}
+
+function handleDuplicatesFound(uuids) {
+  // Store duplicate UUIDs for highlighting (convert array to object for reactivity)
+  console.log('Duplicates found:', uuids.length, uuids);
+  const map = {};
+  for (const uuid of uuids) {
+    map[uuid] = true;
+  }
+  duplicateUuidsMap.value = map;
 }
 
 async function handleFilesUpdated() {
@@ -767,6 +787,7 @@ async function handleFilesUpdated() {
 }
 
 .message-card {
+  position: relative;
   display: flex;
   gap: 0.75rem;
   padding: 1rem;
@@ -788,6 +809,33 @@ async function handleFilesUpdated() {
 .message-card.selected {
   border-color: #667eea;
   background-color: #e8eaf6;
+}
+
+.message-card.is-duplicate {
+  border-color: #ed8936;
+  background-color: #fffaf0;
+  box-shadow: 0 0 0 2px rgba(237, 137, 54, 0.3);
+}
+
+.message-card.is-duplicate::before {
+  content: 'DUPLICATE';
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: #ed8936;
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0 4px 0 4px;
+}
+
+/* Duplicate + user-input combined - keep duplicate highlight with green left border */
+.message-card.is-duplicate.is-user-input {
+  border-color: #ed8936;
+  border-left: 4px solid #4caf50;
+  background-color: #fff3e0;
+  box-shadow: 0 0 0 2px rgba(237, 137, 54, 0.3);
 }
 
 .message-card.is-user-input {

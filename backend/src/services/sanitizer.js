@@ -10,8 +10,32 @@ export function sanitizeSession(parsed, options = {}) {
     removeCriteria = {}
   } = options;
 
-  // Create a working copy of messages
-  let messages = JSON.parse(JSON.stringify(parsed.messages));
+  // Create a working copy of messages in CONVERSATION ORDER (not file order)
+  // This is critical for percentage range filtering to work correctly,
+  // as messages in the JSONL file may not be in conversation order due to
+  // async operations, agent spawns, etc.
+  const orderedMessages = getMessageOrder(parsed);
+
+  // Deduplicate messages by UUID - Claude Code sometimes writes duplicate entries
+  const seenUuids = new Set();
+  const deduplicatedMessages = orderedMessages.filter(m => {
+    if (seenUuids.has(m.uuid)) {
+      console.log('[sanitizeSession] Skipping duplicate message:', m.uuid);
+      return false;
+    }
+    seenUuids.add(m.uuid);
+    return true;
+  });
+
+  if (deduplicatedMessages.length !== orderedMessages.length) {
+    console.log('[sanitizeSession] Deduplicated messages:', {
+      original: orderedMessages.length,
+      deduplicated: deduplicatedMessages.length,
+      duplicatesRemoved: orderedMessages.length - deduplicatedMessages.length
+    });
+  }
+
+  let messages = JSON.parse(JSON.stringify(deduplicatedMessages));
   const messageUuids = new Set(removeMessages);
   const filesSet = new Set(removeFiles);
 
@@ -294,37 +318,55 @@ function applySanitizationCriteria(messages, criteria) {
 
   let workingSet = [...messages];
 
-  // PRIORITY 2: Apply percentage range (select oldest X%) - mark for potential removal
+  // PRIORITY 2: Apply percentage range (select first X% of messages by position)
+  // NOTE: We use message position order, NOT timestamp order, because:
+  // - Messages are displayed in conversation order (parent-child chain)
+  // - Timestamps can be out of order (agents, async tool results, clock differences)
+  // - Users expect "oldest 90%" to mean "first 90% of the conversation"
   let inRangeSet = new Set();
   if (criteria.percentageRange > 0) {
-    const sortedByTime = [...workingSet].sort((a, b) =>
-      new Date(a.timestamp) - new Date(b.timestamp)
-    );
-    const cutoffIndex = Math.floor(sortedByTime.length * (criteria.percentageRange / 100));
-    inRangeSet = new Set(sortedByTime.slice(0, cutoffIndex).map(m => m.uuid));
+    // workingSet is already in conversation order from the parser
+    const cutoffIndex = Math.floor(workingSet.length * (criteria.percentageRange / 100));
+    inRangeSet = new Set(workingSet.slice(0, cutoffIndex).map(m => m.uuid));
+
+    console.log('[applySanitizationCriteria] Percentage range calculation:', {
+      percentageRange: criteria.percentageRange,
+      totalMessages: workingSet.length,
+      cutoffIndex,
+      inRangeCount: inRangeSet.size,
+      firstInRangeTimestamp: workingSet[0]?.timestamp,
+      lastInRangeTimestamp: workingSet[cutoffIndex - 1]?.timestamp,
+      firstOutOfRangeTimestamp: workingSet[cutoffIndex]?.timestamp
+    });
   }
 
   // PRIORITY 3: Message type filter - REMOVE messages of selected types (within range)
   if (criteria.messageTypes && criteria.messageTypes.length > 0) {
     const typesSet = new Set(criteria.messageTypes);
+    const beforeFilter = workingSet.length;
+
     workingSet = workingSet.filter(m => {
       // If percentage range is set and message is not in range, keep it
-      if (criteria.percentageRange > 0 && !inRangeSet.has(m.uuid)) {
+      const isOutOfRange = criteria.percentageRange > 0 && !inRangeSet.has(m.uuid);
+      if (isOutOfRange) {
         return true; // Keep messages outside the range
       }
+
       // Check message type - REMOVE if it matches selected types
       const messageType = getMessageType(m);
       const shouldRemove = typesSet.has(messageType);
 
-      // Debug logging for tool results
-      if (m.raw?.toolUseResult != null || messageType === 'tool-result') {
-        console.log('[applySanitizationCriteria] Tool result detection:', {
+      // Debug logging - show filtering decision for messages with percentage range
+      if (criteria.percentageRange > 0 && criteria.percentageRange < 100) {
+        const inRange = inRangeSet.has(m.uuid);
+        console.log('[applySanitizationCriteria] Message filtering decision:', {
           uuid: m.uuid,
+          timestamp: m.timestamp,
           messageType,
-          hasToolUseResult: m.raw?.toolUseResult != null,
-          hasConvertedFrom: m.content?.some(c => c?.converted_from === 'tool_result'),
+          inRange,
           selectedTypes: Array.from(typesSet),
-          shouldRemove
+          shouldRemove,
+          action: shouldRemove ? 'REMOVE' : 'KEEP'
         });
       }
 
@@ -332,6 +374,14 @@ function applySanitizationCriteria(messages, criteria) {
         return false; // Remove this message
       }
       return true; // Keep messages that don't match
+    });
+
+    console.log('[applySanitizationCriteria] Message type filtering result:', {
+      beforeFilter,
+      afterFilter: workingSet.length,
+      removedCount: beforeFilter - workingSet.length,
+      percentageRange: criteria.percentageRange,
+      inRangeSetSize: inRangeSet.size
     });
   }
 
@@ -546,4 +596,193 @@ export function calculateSanitizationImpact(parsed, options) {
     },
     changes: sanitized.changes
   };
+}
+
+/**
+ * Normalize content to a consistent format for comparison.
+ * Handles both string content and array content formats:
+ * - String: "hello" -> [{type:"text",text:"hello"}]
+ * - Array: [{type:"text",text:"hello"}] -> kept as-is
+ */
+function normalizeContent(content) {
+  if (typeof content === 'string') {
+    // Convert plain string to array format
+    return [{ type: 'text', text: content }];
+  }
+
+  if (Array.isArray(content)) {
+    // Normalize each item in the array
+    return content.map(item => {
+      if (typeof item === 'string') {
+        return { type: 'text', text: item };
+      }
+      // For content blocks, extract just the comparable fields
+      // This handles variations in metadata while keeping core content
+      if (item.type === 'text') {
+        return { type: 'text', text: item.text };
+      }
+      if (item.type === 'thinking') {
+        return { type: 'thinking', thinking: item.thinking };
+      }
+      if (item.type === 'tool_use') {
+        return { type: 'tool_use', name: item.name, input: item.input };
+      }
+      if (item.type === 'tool_result') {
+        return { type: 'tool_result', tool_use_id: item.tool_use_id, content: item.content };
+      }
+      // For other types, keep as-is but remove variable fields
+      const { id, ...rest } = item;
+      return rest;
+    });
+  }
+
+  return content;
+}
+
+/**
+ * Create a content key for duplicate detection
+ * Normalizes content format before comparison to catch duplicates
+ * where the same text is stored in different formats.
+ */
+function getContentKey(message) {
+  // Get the raw content for comparison
+  const content = message.raw?.message?.content || message.content;
+
+  // Normalize the content to handle format differences
+  const normalized = normalizeContent(content);
+
+  // Stringify the normalized content for comparison
+  try {
+    return JSON.stringify(normalized);
+  } catch (e) {
+    // Fallback to UUID if content can't be stringified
+    return message.uuid;
+  }
+}
+
+/**
+ * Find duplicate messages in a session
+ *
+ * IMPORTANT: Only flags duplicates that are part of a "block" - meaning they have
+ * at least one adjacent duplicate (before or after in conversation order).
+ * This distinguishes true bugs (where Claude Code writes duplicate sequences)
+ * from legitimate repeated prompts (user typing "still not working" twice).
+ *
+ * Returns an object with:
+ * - duplicateGroups: Array of groups, each containing UUIDs of duplicate messages
+ * - duplicateUuids: Set of all UUIDs that are duplicates (not the original/oldest)
+ * - totalDuplicates: Count of duplicate messages (excluding originals)
+ * - isolatedDuplicates: Count of isolated duplicates that were NOT flagged (likely intentional)
+ */
+export function findDuplicateMessages(messages) {
+  // Build position index for adjacency checking
+  const uuidToIndex = new Map();
+  messages.forEach((m, idx) => uuidToIndex.set(m.uuid, idx));
+
+  // Group messages by content key
+  const contentGroups = new Map();
+
+  for (const message of messages) {
+    const key = getContentKey(message);
+
+    if (!contentGroups.has(key)) {
+      contentGroups.set(key, []);
+    }
+    contentGroups.get(key).push(message);
+  }
+
+  // First pass: identify ALL potential duplicates (content matches)
+  const allPotentialDuplicateUuids = new Set();
+
+  for (const [key, group] of contentGroups) {
+    if (group.length > 1) {
+      // Sort by timestamp to find the oldest (original)
+      group.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+      // Mark all except the original as potential duplicates
+      for (let i = 1; i < group.length; i++) {
+        allPotentialDuplicateUuids.add(group[i].uuid);
+      }
+    }
+  }
+
+  // Second pass: filter to only duplicates that are part of a block
+  // A duplicate is part of a block if the message immediately before or after it
+  // (in conversation order) is also a potential duplicate
+  const blockDuplicateUuids = new Set();
+
+  for (const uuid of allPotentialDuplicateUuids) {
+    const idx = uuidToIndex.get(uuid);
+
+    // Check if previous message is also a duplicate
+    const prevUuid = idx > 0 ? messages[idx - 1].uuid : null;
+    const prevIsDuplicate = prevUuid && allPotentialDuplicateUuids.has(prevUuid);
+
+    // Check if next message is also a duplicate
+    const nextUuid = idx < messages.length - 1 ? messages[idx + 1].uuid : null;
+    const nextIsDuplicate = nextUuid && allPotentialDuplicateUuids.has(nextUuid);
+
+    // Only flag if part of a block (has adjacent duplicate)
+    if (prevIsDuplicate || nextIsDuplicate) {
+      blockDuplicateUuids.add(uuid);
+    }
+  }
+
+  // Build final duplicate groups (only for block duplicates)
+  const duplicateGroups = [];
+  const duplicateUuids = new Set();
+
+  for (const [key, group] of contentGroups) {
+    if (group.length > 1) {
+      // Sort by timestamp to find the oldest (original)
+      group.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+      // First one is the original, rest are potential duplicates
+      const original = group[0];
+      const duplicates = group.slice(1).filter(d => blockDuplicateUuids.has(d.uuid));
+
+      // Only create a group if there are block duplicates
+      if (duplicates.length > 0) {
+        duplicateGroups.push({
+          originalUuid: original.uuid,
+          originalTimestamp: original.timestamp,
+          duplicateUuids: duplicates.map(d => d.uuid),
+          duplicateTimestamps: duplicates.map(d => d.timestamp),
+          count: duplicates.length + 1, // +1 for original
+          messageType: original.type
+        });
+
+        // Add duplicate UUIDs to the set
+        for (const dup of duplicates) {
+          duplicateUuids.add(dup.uuid);
+        }
+      }
+    }
+  }
+
+  const isolatedCount = allPotentialDuplicateUuids.size - blockDuplicateUuids.size;
+
+  return {
+    duplicateGroups,
+    duplicateUuids,
+    totalDuplicates: duplicateUuids.size,
+    isolatedDuplicates: isolatedCount
+  };
+}
+
+/**
+ * Remove duplicate messages from a session, keeping only the oldest
+ * Returns the deduplicated messages array
+ */
+export function deduplicateMessages(messages) {
+  const { duplicateUuids } = findDuplicateMessages(messages);
+
+  if (duplicateUuids.size === 0) {
+    return messages; // No duplicates found
+  }
+
+  console.log(`[deduplicateMessages] Removing ${duplicateUuids.size} duplicate messages`);
+
+  // Filter out duplicate messages (keep originals)
+  return messages.filter(m => !duplicateUuids.has(m.uuid));
 }

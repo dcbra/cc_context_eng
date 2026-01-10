@@ -93,7 +93,12 @@
         <div class="criteria-content full-width">
           <span class="criteria-name">Message Range</span>
           <span class="criteria-desc">
-            Apply criteria to oldest {{ criteria.percentageRange }}% of messages
+            <span v-if="criteria.percentageRange === 0 || criteria.percentageRange === 100" class="full-range-label">
+              Full Range set — all messages will be filtered
+            </span>
+            <span v-else>
+              Apply criteria to first {{ criteria.percentageRange }}% of messages
+            </span>
           </span>
           <div class="slider-container">
             <input
@@ -158,6 +163,48 @@
       </div>
     </div>
 
+    <!-- Duplicates Section -->
+    <div class="duplicates-section">
+      <h4>Duplicate Detection</h4>
+      <div class="duplicates-content">
+        <div class="duplicates-info">
+          <span v-if="duplicatesData">
+            Found <strong>{{ duplicatesData.totalDuplicates }}</strong> block duplicates
+            <span v-if="duplicatesData.isolatedDuplicates > 0" class="isolated-info">
+              ({{ duplicatesData.isolatedDuplicates }} isolated skipped)
+            </span>
+          </span>
+          <span v-else class="text-muted">
+            Click "Find Duplicates" to scan for duplicate messages
+          </span>
+        </div>
+        <div class="duplicates-actions">
+          <button @click="scanForDuplicates" class="btn-secondary" :disabled="loadingDuplicates">
+            {{ loadingDuplicates ? 'Scanning...' : 'Find Duplicates' }}
+          </button>
+          <button
+            @click="applyDeduplicate"
+            class="btn-warning"
+            :disabled="!duplicatesData || duplicatesData.totalDuplicates === 0 || loadingDuplicates"
+          >
+            Remove Duplicates
+          </button>
+        </div>
+      </div>
+      <div v-if="duplicatesData && duplicatesData.totalDuplicates > 0" class="duplicates-details">
+        <details>
+          <summary>View duplicate groups ({{ duplicatesData.duplicateGroups?.length || 0 }})</summary>
+          <div class="duplicate-groups">
+            <div v-for="(group, idx) in duplicatesData.duplicateGroups" :key="idx" class="duplicate-group">
+              <span class="group-type">{{ group.messageType }}</span>
+              <span class="group-count">{{ group.count }} copies</span>
+              <span class="group-original">Original: {{ new Date(group.originalTimestamp).toLocaleString() }}</span>
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+
     <div class="actions">
       <button @click="calculatePreview" class="btn-primary">
         {{ showPreview ? 'Recalculate' : 'Calculate Impact' }}
@@ -175,6 +222,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { useSelectionStore } from '../stores/selection.js';
+import { findDuplicates, removeDuplicates } from '../utils/api.js';
 
 const props = defineProps({
   sessionId: String,
@@ -182,7 +230,7 @@ const props = defineProps({
   sessionData: Object
 });
 
-const emit = defineEmits(['sanitized']);
+const emit = defineEmits(['sanitized', 'duplicatesFound']);
 
 const selectionStore = useSelectionStore();
 const criteria = ref({
@@ -198,6 +246,10 @@ const showPreview = ref(false);
 const previewData = ref(null);
 const loading = ref(false);
 const error = ref(null);
+
+// Duplicates state
+const duplicatesData = ref(null);
+const loadingDuplicates = ref(false);
 
 const selectedMessageCount = computed(() => selectionStore.selectedMessageCount);
 const selectedFileCount = computed(() => selectionStore.selectedFileCount);
@@ -302,6 +354,46 @@ async function applySanitization() {
     error.value = err.message;
   } finally {
     loading.value = false;
+  }
+}
+
+// Duplicate detection functions
+async function scanForDuplicates() {
+  loadingDuplicates.value = true;
+  error.value = null;
+
+  try {
+    const result = await findDuplicates(props.sessionId, props.projectId);
+    duplicatesData.value = result;
+
+    // Emit the duplicate UUIDs for highlighting in the message list
+    if (result.duplicateUuids && result.duplicateUuids.length > 0) {
+      emit('duplicatesFound', result.duplicateUuids);
+    }
+  } catch (err) {
+    error.value = err.message;
+  } finally {
+    loadingDuplicates.value = false;
+  }
+}
+
+async function applyDeduplicate() {
+  if (!duplicatesData.value || duplicatesData.value.totalDuplicates === 0) return;
+
+  loadingDuplicates.value = true;
+  error.value = null;
+
+  try {
+    const result = await removeDuplicates(props.sessionId, props.projectId);
+    console.log('Deduplication result:', result);
+
+    // Clear duplicates data and emit sanitized event to reload
+    duplicatesData.value = null;
+    emit('sanitized', result);
+  } catch (err) {
+    error.value = err.message;
+  } finally {
+    loadingDuplicates.value = false;
   }
 }
 </script>
@@ -675,5 +767,147 @@ async function applySanitization() {
   font-weight: 600;
   color: #667eea;
   font-size: 1rem;
+}
+
+.full-range-label {
+  font-weight: 600;
+  color: #667eea;
+}
+
+/* Duplicates Section */
+.duplicates-section {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background-color: #fff8e6;
+  border: 1px solid #f5c542;
+  border-radius: 4px;
+}
+
+.duplicates-section h4 {
+  margin: 0 0 0.75rem 0;
+  color: #b7791f;
+  font-size: 0.95rem;
+}
+
+.duplicates-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.duplicates-info {
+  font-size: 0.9rem;
+  color: #744210;
+}
+
+.duplicates-info strong {
+  color: #d69e2e;
+}
+
+.text-muted {
+  color: #999;
+}
+
+.isolated-info {
+  color: #718096;
+  font-size: 0.85em;
+  font-style: italic;
+}
+
+.duplicates-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-secondary {
+  padding: 0.5rem 1rem;
+  background: #e2e8f0;
+  color: #4a5568;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #cbd5e0;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-warning {
+  padding: 0.5rem 1rem;
+  background: #ed8936;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-warning:hover:not(:disabled) {
+  background: #dd6b20;
+}
+
+.btn-warning:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.duplicates-details {
+  margin-top: 0.75rem;
+}
+
+.duplicates-details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #744210;
+  user-select: none;
+}
+
+.duplicates-details summary:hover {
+  text-decoration: underline;
+}
+
+.duplicate-groups {
+  margin-top: 0.5rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.duplicate-group {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  background: white;
+  border-radius: 3px;
+  margin-bottom: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.group-type {
+  padding: 0.125rem 0.5rem;
+  background: #667eea;
+  color: white;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.group-count {
+  color: #d69e2e;
+  font-weight: 600;
+}
+
+.group-original {
+  color: #718096;
 }
 </style>

@@ -5,9 +5,47 @@ import { parseJsonlFile, getMessageOrder } from '../services/jsonl-parser.js';
 import { trackFilesInSession } from '../services/file-tracker.js';
 import { analyzeSubagents } from '../services/subagent-analyzer.js';
 import { calculateTokenBreakdown } from '../services/token-calculator.js';
+import { findDuplicateMessages } from '../services/sanitizer.js';
 
 const router = express.Router();
 const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
+
+/**
+ * GET /api/sessions/:sessionId/duplicates
+ * Find duplicate messages in a session
+ * NOTE: This route must come BEFORE /:sessionId to avoid being caught by the generic route
+ */
+router.get('/:sessionId/duplicates', async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const { projectId } = req.query;
+
+    if (!sessionId || !projectId) {
+      return res.status(400).json({ error: 'Missing sessionId or projectId' });
+    }
+
+    // Construct full file path
+    const sessionFilePath = path.join(PROJECTS_DIR, projectId, `${sessionId}.jsonl`);
+
+    // Parse the JSONL file
+    const parsed = await parseJsonlFile(sessionFilePath);
+    const messageOrder = getMessageOrder(parsed);
+
+    // Find duplicates
+    const result = findDuplicateMessages(messageOrder);
+
+    // Convert Set to Array for JSON serialization
+    res.json({
+      duplicateGroups: result.duplicateGroups,
+      duplicateUuids: Array.from(result.duplicateUuids),
+      totalDuplicates: result.totalDuplicates,
+      isolatedDuplicates: result.isolatedDuplicates,
+      totalMessages: messageOrder.length
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 /**
  * GET /api/sessions/:sessionId
@@ -126,13 +164,11 @@ router.post('/:sessionId/preview', async (req, res, next) => {
         // Calculate based on percentage range and message types
         let affectedMessages = messageOrder;
 
-        // Apply percentage range
+        // Apply percentage range (by position, not timestamp)
+        // Messages are already in conversation order from getMessageOrder()
         if (criteria.percentageRange > 0) {
-          const sortedByTime = [...messageOrder].sort((a, b) =>
-            new Date(a.timestamp) - new Date(b.timestamp)
-          );
-          const cutoffIndex = Math.floor(sortedByTime.length * (criteria.percentageRange / 100));
-          affectedMessages = sortedByTime.slice(0, cutoffIndex);
+          const cutoffIndex = Math.floor(messageOrder.length * (criteria.percentageRange / 100));
+          affectedMessages = messageOrder.slice(0, cutoffIndex);
         }
 
         // Apply message type filter

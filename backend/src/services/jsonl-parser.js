@@ -14,7 +14,9 @@ export async function parseJsonlFile(filePath) {
 
   const messages = [];
   const fileHistorySnapshots = [];
+  const seenMessageUuids = new Set(); // Track seen UUIDs to handle duplicates
   let summary = null;
+  let duplicateCount = 0;
 
   for await (const line of rl) {
     if (!line.trim()) continue;
@@ -28,12 +30,24 @@ export async function parseJsonlFile(filePath) {
       } else if (record.type === 'file-history-snapshot') {
         fileHistorySnapshots.push(record);
       } else if (record.type === 'user' || record.type === 'assistant') {
+        // Skip duplicate messages (Claude Code sometimes writes duplicates)
+        if (record.uuid && seenMessageUuids.has(record.uuid)) {
+          duplicateCount++;
+          continue;
+        }
+        if (record.uuid) {
+          seenMessageUuids.add(record.uuid);
+        }
         const enhancedMessage = enhanceMessage(record);
         messages.push(enhancedMessage);
       }
     } catch (error) {
       console.warn(`Failed to parse line in ${filePath}:`, error.message);
     }
+  }
+
+  if (duplicateCount > 0) {
+    console.log(`[parseJsonlFile] Skipped ${duplicateCount} duplicate messages in ${filePath}`);
   }
 
   // Build conversation graph

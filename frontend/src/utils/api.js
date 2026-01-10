@@ -57,3 +57,18 @@ export async function restoreBackup(sessionId, projectId, version) {
   if (!response.ok) throw new Error('Failed to restore backup');
   return response.json();
 }
+
+export async function findDuplicates(sessionId, projectId) {
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}/duplicates?projectId=${projectId}`);
+  if (!response.ok) throw new Error('Failed to find duplicates');
+  return response.json();
+}
+
+export async function removeDuplicates(sessionId, projectId) {
+  const response = await fetch(`${API_BASE}/sanitize/${sessionId}/deduplicate?projectId=${projectId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) throw new Error('Failed to remove duplicates');
+  return response.json();
+}
