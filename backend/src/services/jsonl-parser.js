@@ -201,7 +201,7 @@ function calculateTokens(message) {
  */
 function buildMessageGraph(messages, messagesMap) {
   const graph = {
-    roots: [], // Messages with parentUuid === null
+    roots: [], // Messages with parentUuid === null OR orphaned (parent not in session)
     childrenOf: new Map(), // Map<uuid, [children]>
     parentOf: new Map() // Map<uuid, parent>
   };
@@ -209,6 +209,10 @@ function buildMessageGraph(messages, messagesMap) {
   // Find roots and build parent-child relationships
   for (const message of messages) {
     if (!message.parentUuid) {
+      // No parent = root
+      graph.roots.push(message.uuid);
+    } else if (!messagesMap.has(message.parentUuid)) {
+      // Parent not in this session = orphaned root (continuation session)
       graph.roots.push(message.uuid);
     } else {
       if (!graph.childrenOf.has(message.parentUuid)) {
