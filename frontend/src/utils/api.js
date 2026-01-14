@@ -73,22 +73,23 @@ export async function removeDuplicates(sessionId, projectId) {
   return response.json();
 }
 
-export async function exportSessionToMarkdown(sessionId, projectId, format = 'markdown') {
-  const response = await fetch(`${API_BASE}/export/${sessionId}/markdown?projectId=${encodeURIComponent(projectId)}&format=${format}`);
+export async function exportSessionToMarkdown(sessionId, projectId, format = 'markdown', full = false) {
+  const response = await fetch(`${API_BASE}/export/${sessionId}/markdown?projectId=${encodeURIComponent(projectId)}&format=${format}&full=${full}`);
   if (!response.ok) throw new Error('Failed to export session');
   return response.json();
 }
 
-export async function exportBackupToMarkdown(sessionId, projectId, version, format = 'markdown') {
-  const response = await fetch(`${API_BASE}/export/${sessionId}/backup/${version}/markdown?projectId=${encodeURIComponent(projectId)}&format=${format}`);
+export async function exportBackupToMarkdown(sessionId, projectId, version, format = 'markdown', full = false) {
+  const response = await fetch(`${API_BASE}/export/${sessionId}/backup/${version}/markdown?projectId=${encodeURIComponent(projectId)}&format=${format}&full=${full}`);
   if (!response.ok) throw new Error('Failed to export backup');
   return response.json();
 }
 
-export async function convertJsonlToMarkdown(file, format = 'markdown') {
+export async function convertJsonlToMarkdown(file, format = 'markdown', full = false) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('format', format);
+  formData.append('full', full.toString());
 
   const response = await fetch(`${API_BASE}/export/convert`, {
     method: 'POST',

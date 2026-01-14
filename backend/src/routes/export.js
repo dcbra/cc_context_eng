@@ -28,18 +28,23 @@ const upload = multer({
 /**
  * GET /api/export/:sessionId/markdown
  * Export current session to markdown format
+ * Query params:
+ *   - projectId: required
+ *   - format: 'markdown' | 'plain' | 'report' (default: 'markdown')
+ *   - full: 'true' | 'false' - whether to include full content without truncation (default: 'false')
  */
 router.get('/:sessionId/markdown', async (req, res, next) => {
   try {
     const { sessionId } = req.params;
-    const { projectId, format = 'markdown' } = req.query;
+    const { projectId, format = 'markdown', full = 'false' } = req.query;
 
     if (!sessionId || !projectId) {
       return res.status(400).json({ error: 'Missing sessionId or projectId' });
     }
 
     const sessionFilePath = path.join(PROJECTS_DIR, projectId, `${sessionId}.jsonl`);
-    const result = await exportSessionAsMarkdown(sessionFilePath, sessionId, projectId, format);
+    const options = { full: full === 'true' };
+    const result = await exportSessionAsMarkdown(sessionFilePath, sessionId, projectId, format, null, options);
 
     res.json(result);
   } catch (error) {
@@ -50,11 +55,15 @@ router.get('/:sessionId/markdown', async (req, res, next) => {
 /**
  * GET /api/export/:sessionId/backup/:version/markdown
  * Export a specific backup version to markdown format
+ * Query params:
+ *   - projectId: required
+ *   - format: 'markdown' | 'plain' | 'report' (default: 'markdown')
+ *   - full: 'true' | 'false' - whether to include full content without truncation (default: 'false')
  */
 router.get('/:sessionId/backup/:version/markdown', async (req, res, next) => {
   try {
     const { sessionId, version } = req.params;
-    const { projectId, format = 'markdown' } = req.query;
+    const { projectId, format = 'markdown', full = 'false' } = req.query;
 
     if (!sessionId || !projectId || !version) {
       return res.status(400).json({ error: 'Missing required parameters' });
@@ -62,7 +71,8 @@ router.get('/:sessionId/backup/:version/markdown', async (req, res, next) => {
 
     const backupDir = getSessionBackupDir(projectId, sessionId);
     const backupFilePath = path.join(backupDir, `v${version}.jsonl`);
-    const result = await exportSessionAsMarkdown(backupFilePath, sessionId, projectId, format, version);
+    const options = { full: full === 'true' };
+    const result = await exportSessionAsMarkdown(backupFilePath, sessionId, projectId, format, version, options);
 
     res.json(result);
   } catch (error) {
@@ -73,6 +83,10 @@ router.get('/:sessionId/backup/:version/markdown', async (req, res, next) => {
 /**
  * POST /api/export/convert
  * Convert an uploaded JSONL file to markdown
+ * Body params (multipart form):
+ *   - file: the JSONL file
+ *   - format: 'markdown' | 'plain' | 'report' (default: 'markdown')
+ *   - full: 'true' | 'false' - whether to include full content without truncation (default: 'false')
  */
 router.post('/convert', upload.single('file'), async (req, res, next) => {
   try {
@@ -80,11 +94,12 @@ router.post('/convert', upload.single('file'), async (req, res, next) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const { format = 'markdown' } = req.body;
+    const { format = 'markdown', full = 'false' } = req.body;
     const content = req.file.buffer.toString('utf-8');
     const fileName = req.file.originalname;
+    const options = { full: full === 'true' };
 
-    const result = await convertJsonlContentToMarkdown(content, fileName, format);
+    const result = await convertJsonlContentToMarkdown(content, fileName, format, options);
     res.json(result);
   } catch (error) {
     next(error);
@@ -93,8 +108,15 @@ router.post('/convert', upload.single('file'), async (req, res, next) => {
 
 /**
  * Helper function to export a session file as markdown
+ * @param {string} filePath - Path to the JSONL file
+ * @param {string} sessionId - Session ID
+ * @param {string} projectId - Project ID
+ * @param {string} format - Export format ('markdown', 'plain', 'report')
+ * @param {number|null} backupVersion - Backup version number if exporting a backup
+ * @param {Object} options - Export options
+ * @param {boolean} options.full - Whether to include full content without truncation
  */
-async function exportSessionAsMarkdown(filePath, sessionId, projectId, format, backupVersion = null) {
+async function exportSessionAsMarkdown(filePath, sessionId, projectId, format, backupVersion = null, options = {}) {
   const parsed = await parseJsonlFile(filePath);
   const messageOrder = getMessageOrder(parsed);
   const filesRead = trackFilesInSession(parsed.messages);
@@ -110,12 +132,12 @@ async function exportSessionAsMarkdown(filePath, sessionId, projectId, format, b
       filename = `${sessionId}${backupVersion ? `-v${backupVersion}` : ''}.txt`;
       break;
     case 'report':
-      content = createSessionReport(parsed, messageOrder, filesRead, tokenBreakdown, subagents);
+      content = createSessionReport(parsed, messageOrder, filesRead, tokenBreakdown, subagents, options);
       filename = `${sessionId}${backupVersion ? `-v${backupVersion}` : ''}-report.md`;
       break;
     case 'markdown':
     default:
-      content = sessionToMarkdown(parsed, messageOrder);
+      content = sessionToMarkdown(parsed, messageOrder, options);
       filename = `${sessionId}${backupVersion ? `-v${backupVersion}` : ''}.md`;
       break;
   }
@@ -126,6 +148,7 @@ async function exportSessionAsMarkdown(filePath, sessionId, projectId, format, b
     format,
     sessionId,
     backupVersion,
+    full: options.full || false,
     stats: {
       messageCount: messageOrder.length,
       fileCount: filesRead.length,
@@ -136,8 +159,13 @@ async function exportSessionAsMarkdown(filePath, sessionId, projectId, format, b
 
 /**
  * Helper function to convert JSONL content (string) to markdown
+ * @param {string} jsonlContent - Raw JSONL content
+ * @param {string} fileName - Original file name
+ * @param {string} format - Export format ('markdown', 'plain', 'report')
+ * @param {Object} options - Export options
+ * @param {boolean} options.full - Whether to include full content without truncation
  */
-async function convertJsonlContentToMarkdown(jsonlContent, fileName, format) {
+async function convertJsonlContentToMarkdown(jsonlContent, fileName, format, options = {}) {
   // Parse the JSONL content line by line
   const lines = jsonlContent.split('\n').filter(l => l.trim());
   const messages = [];
@@ -227,12 +255,12 @@ async function convertJsonlContentToMarkdown(jsonlContent, fileName, format) {
       outputFilename = fileName.replace('.jsonl', '.txt');
       break;
     case 'report':
-      content = createSessionReport(parsed, messages, [], { breakdown: { combined: { total: totalTokens } } }, []);
+      content = createSessionReport(parsed, messages, [], { breakdown: { combined: { total: totalTokens } } }, [], options);
       outputFilename = fileName.replace('.jsonl', '-report.md');
       break;
     case 'markdown':
     default:
-      content = sessionToMarkdown(parsed, messages);
+      content = sessionToMarkdown(parsed, messages, options);
       outputFilename = fileName.replace('.jsonl', '.md');
       break;
   }
@@ -242,6 +270,7 @@ async function convertJsonlContentToMarkdown(jsonlContent, fileName, format) {
     filename: outputFilename,
     format,
     originalFilename: fileName,
+    full: options.full || false,
     stats: {
       messageCount: messages.length,
       tokenCount: totalTokens

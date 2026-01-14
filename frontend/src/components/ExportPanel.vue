@@ -18,6 +18,14 @@
         </select>
       </div>
 
+      <div class="content-toggle">
+        <label class="toggle-label">
+          <input type="checkbox" v-model="exportFull" />
+          <span class="toggle-text">Full content</span>
+          <span class="toggle-hint">(includes complete tool results without truncation)</span>
+        </label>
+      </div>
+
       <button
         @click="exportCurrentSession"
         :disabled="exporting"
@@ -55,6 +63,14 @@
           <option value="plain">Plain Text (.txt)</option>
           <option value="report">Analysis Report (.md)</option>
         </select>
+      </div>
+
+      <div v-if="selectedFile" class="content-toggle">
+        <label class="toggle-label">
+          <input type="checkbox" v-model="convertFull" />
+          <span class="toggle-text">Full content</span>
+          <span class="toggle-hint">(includes complete tool results without truncation)</span>
+        </label>
       </div>
 
       <button
@@ -107,6 +123,8 @@ const props = defineProps({
 
 const selectedFormat = ref('markdown');
 const convertFormat = ref('markdown');
+const exportFull = ref(false);
+const convertFull = ref(false);
 const exporting = ref(false);
 const converting = ref(false);
 const error = ref(null);
@@ -132,7 +150,7 @@ async function exportCurrentSession() {
   lastExport.value = null;
 
   try {
-    const result = await exportSessionToMarkdown(props.sessionId, props.projectId, selectedFormat.value);
+    const result = await exportSessionToMarkdown(props.sessionId, props.projectId, selectedFormat.value, exportFull.value);
     lastExport.value = result;
     downloadContent(result.content, result.filename);
   } catch (err) {
@@ -150,7 +168,7 @@ async function convertFile() {
   lastExport.value = null;
 
   try {
-    const result = await convertJsonlToMarkdown(selectedFile.value, convertFormat.value);
+    const result = await convertJsonlToMarkdown(selectedFile.value, convertFormat.value, convertFull.value);
     lastExport.value = result;
     downloadContent(result.content, result.filename);
   } catch (err) {
@@ -242,6 +260,33 @@ function formatSize(bytes) {
 
 .format-selector select:hover {
   border-color: #667eea;
+}
+
+.content-toggle {
+  margin-bottom: 1rem;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.toggle-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.toggle-text {
+  font-weight: 500;
+  color: #333;
+}
+
+.toggle-hint {
+  font-size: 0.85rem;
+  color: #666;
 }
 
 .btn-export {

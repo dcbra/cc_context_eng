@@ -192,7 +192,8 @@ async function deleteBackup(version) {
 
 async function exportBackup(version) {
   try {
-    const result = await exportBackupToMarkdown(props.sessionId, props.projectId, version);
+    // Export with full content by default for backups
+    const result = await exportBackupToMarkdown(props.sessionId, props.projectId, version, 'markdown', true);
     downloadContent(result.content, result.filename);
   } catch (err) {
     error.value = err.message;

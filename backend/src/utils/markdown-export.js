@@ -1,7 +1,12 @@
 /**
  * Convert a parsed session to Markdown format
+ * @param {Object} parsed - Parsed session data
+ * @param {Array} messageOrder - Messages in order
+ * @param {Object} options - Export options
+ * @param {boolean} options.full - If true, export full content without truncation (default: false)
  */
-export function sessionToMarkdown(parsed, messageOrder) {
+export function sessionToMarkdown(parsed, messageOrder, options = {}) {
+  const { full = false } = options;
   const lines = [];
 
   // Header
@@ -56,7 +61,11 @@ export function sessionToMarkdown(parsed, messageOrder) {
           const content = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
           lines.push('**Result:**');
           lines.push('```');
-          lines.push(content.substring(0, 500) + (content.length > 500 ? '...' : ''));
+          if (full) {
+            lines.push(content);
+          } else {
+            lines.push(content.substring(0, 500) + (content.length > 500 ? '...' : ''));
+          }
           lines.push('```');
           lines.push('');
         }
@@ -110,8 +119,16 @@ export function sessionToPlainText(messageOrder) {
 
 /**
  * Create a summary report of the session
+ * @param {Object} parsed - Parsed session data
+ * @param {Array} messageOrder - Messages in order
+ * @param {Array} filesRead - Files read in session
+ * @param {Object} tokens - Token breakdown
+ * @param {Array} subagents - Subagent info
+ * @param {Object} options - Export options
+ * @param {boolean} options.full - If true, include all files without limit (default: false)
  */
-export function createSessionReport(parsed, messageOrder, filesRead, tokens, subagents) {
+export function createSessionReport(parsed, messageOrder, filesRead, tokens, subagents, options = {}) {
+  const { full = false } = options;
   const lines = [];
 
   lines.push('# Context Analysis Report');
@@ -163,13 +180,14 @@ export function createSessionReport(parsed, messageOrder, filesRead, tokens, sub
     lines.push(`Total files read: **${filesRead.length}**`);
     lines.push('');
 
-    for (const file of filesRead.slice(0, 20)) {
-      lines.push(`- \`${file.path}\`
-        - Read ${file.readCount} times
-        - Total size: ${formatSize(file.totalContentSize)}`);
+    const filesToShow = full ? filesRead : filesRead.slice(0, 20);
+    for (const file of filesToShow) {
+      lines.push(`- \`${file.path}\``);
+      lines.push(`  - Read ${file.readCount} times`);
+      lines.push(`  - Total size: ${formatSize(file.totalContentSize)}`);
     }
 
-    if (filesRead.length > 20) {
+    if (!full && filesRead.length > 20) {
       lines.push(`- ... and ${filesRead.length - 20} more files`);
     }
   }
