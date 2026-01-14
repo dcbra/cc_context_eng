@@ -16,6 +16,14 @@
         <button @click="createManualBackup" class="btn-save">💾 Create Manual Backup</button>
       </div>
 
+      <div class="export-options">
+        <label class="toggle-label">
+          <input type="checkbox" v-model="exportFull" />
+          <span class="toggle-text">Full content export</span>
+          <span class="toggle-hint">(includes complete tool results without truncation)</span>
+        </label>
+      </div>
+
       <div class="backups-grid">
         <div
           v-for="backup in backups"
@@ -110,6 +118,7 @@ const backups = ref([]);
 const loading = ref(true);
 const error = ref(null);
 const verificationResult = ref(null);
+const exportFull = ref(true);
 
 onMounted(() => {
   loadBackups();
@@ -192,8 +201,7 @@ async function deleteBackup(version) {
 
 async function exportBackup(version) {
   try {
-    // Export with full content by default for backups
-    const result = await exportBackupToMarkdown(props.sessionId, props.projectId, version, 'markdown', true);
+    const result = await exportBackupToMarkdown(props.sessionId, props.projectId, version, 'markdown', exportFull.value);
     downloadContent(result.content, result.filename);
   } catch (err) {
     error.value = err.message;
@@ -291,6 +299,36 @@ function formatSize(bytes) {
 
 .btn-save:hover {
   background: #388e3c;
+}
+
+.export-options {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.toggle-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.toggle-text {
+  font-weight: 500;
+  color: #333;
+}
+
+.toggle-hint {
+  font-size: 0.85rem;
+  color: #666;
 }
 
 .backups-grid {
