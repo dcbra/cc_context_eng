@@ -72,3 +72,28 @@ export async function removeDuplicates(sessionId, projectId) {
   if (!response.ok) throw new Error('Failed to remove duplicates');
   return response.json();
 }
+
+export async function exportSessionToMarkdown(sessionId, projectId, format = 'markdown') {
+  const response = await fetch(`${API_BASE}/export/${sessionId}/markdown?projectId=${encodeURIComponent(projectId)}&format=${format}`);
+  if (!response.ok) throw new Error('Failed to export session');
+  return response.json();
+}
+
+export async function exportBackupToMarkdown(sessionId, projectId, version, format = 'markdown') {
+  const response = await fetch(`${API_BASE}/export/${sessionId}/backup/${version}/markdown?projectId=${encodeURIComponent(projectId)}&format=${format}`);
+  if (!response.ok) throw new Error('Failed to export backup');
+  return response.json();
+}
+
+export async function convertJsonlToMarkdown(file, format = 'markdown') {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('format', format);
+
+  const response = await fetch(`${API_BASE}/export/convert`, {
+    method: 'POST',
+    body: formData
+  });
+  if (!response.ok) throw new Error('Failed to convert file');
+  return response.json();
+}

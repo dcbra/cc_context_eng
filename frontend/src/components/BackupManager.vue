@@ -46,6 +46,9 @@
             <button @click="restoreBackup(backup.version)" class="btn-action btn-restore">
               Restore
             </button>
+            <button @click="exportBackup(backup.version)" class="btn-action btn-export">
+              Export
+            </button>
             <button @click="verifyBackup(backup.version)" class="btn-action btn-verify">
               Verify
             </button>
@@ -96,6 +99,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import { exportBackupToMarkdown } from '../utils/api.js';
 
 const props = defineProps({
   sessionId: String,
@@ -184,6 +188,27 @@ async function deleteBackup(version) {
   } catch (err) {
     error.value = err.message;
   }
+}
+
+async function exportBackup(version) {
+  try {
+    const result = await exportBackupToMarkdown(props.sessionId, props.projectId, version);
+    downloadContent(result.content, result.filename);
+  } catch (err) {
+    error.value = err.message;
+  }
+}
+
+function downloadContent(content, filename) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 function formatDate(timestamp) {
@@ -355,6 +380,15 @@ function formatSize(bytes) {
 
 .btn-verify:hover {
   background: #e3f2fd;
+}
+
+.btn-export {
+  color: #667eea;
+  border-color: #667eea;
+}
+
+.btn-export:hover {
+  background: #f0f4ff;
 }
 
 .btn-delete {

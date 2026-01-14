@@ -22,6 +22,9 @@
         <button @click="activeTab = 'backups'" :class="{ active: activeTab === 'backups' }" class="tab-btn">
           Backups
         </button>
+        <button @click="activeTab = 'export'" :class="{ active: activeTab === 'export' }" class="tab-btn">
+          Export
+        </button>
       </div>
     </div>
 
@@ -168,6 +171,14 @@
           :projectId="session.projectId"
         />
       </div>
+
+      <!-- Export Tab -->
+      <div v-if="activeTab === 'export'" class="tab-content">
+        <ExportPanel
+          :sessionId="session.sessionId"
+          :projectId="session.projectId"
+        />
+      </div>
     </div>
 
     <!-- Image Modal -->
@@ -188,6 +199,7 @@ import FileTracker from './FileTracker.vue';
 import SanitizationPanel from './SanitizationPanel.vue';
 import TokenCalculator from './TokenCalculator.vue';
 import BackupManager from './BackupManager.vue';
+import ExportPanel from './ExportPanel.vue';
 
 const props = defineProps({
   session: {
