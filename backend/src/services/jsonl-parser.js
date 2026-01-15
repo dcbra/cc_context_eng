@@ -29,7 +29,7 @@ export async function parseJsonlFile(filePath) {
         summary = record;
       } else if (record.type === 'file-history-snapshot') {
         fileHistorySnapshots.push(record);
-      } else if (record.type === 'user' || record.type === 'assistant') {
+      } else if (record.type === 'user' || record.type === 'assistant' || record.type === 'system') {
         // Skip duplicate messages (Claude Code sometimes writes duplicates)
         if (record.uuid && seenMessageUuids.has(record.uuid)) {
           duplicateCount++;

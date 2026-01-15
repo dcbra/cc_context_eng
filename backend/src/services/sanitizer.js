@@ -108,6 +108,8 @@ function removeSelectedMessages(messages, messagesToRemove, messageGraph) {
       if (parentMessage) {
         parent = parentMessage.parentUuid;
       } else {
+        // Keep original parentUuid - dangling reference signals continuation
+        parent = message.parentUuid;
         break;
       }
     }
@@ -310,22 +312,27 @@ function getMessageType(message) {
  * Priority: Manual selections > Percentage range + Message type filter (REMOVE) > Content criteria
  */
 function applySanitizationCriteria(messages, criteria) {
-  // PRIORITY 1: Manual selections override everything - REMOVE selected messages
-  if (criteria.manuallySelected && criteria.manuallySelected.length > 0) {
-    const selectedSet = new Set(criteria.manuallySelected);
-    return messages.filter(m => !selectedSet.has(m.uuid));
-  }
-
   let workingSet = [...messages];
 
-  // PRIORITY 2: Apply percentage range (select first X% of messages by position)
-  // NOTE: We use message position order, NOT timestamp order, because:
-  // - Messages are displayed in conversation order (parent-child chain)
-  // - Timestamps can be out of order (agents, async tool results, clock differences)
-  // - Users expect "oldest 90%" to mean "first 90% of the conversation"
+  // Determine the "in range" set - either from manual selection or percentage range
+  // Manual selection takes priority over percentage range
   let inRangeSet = new Set();
-  if (criteria.percentageRange > 0) {
-    // workingSet is already in conversation order from the parser
+
+  if (criteria.manuallySelected && criteria.manuallySelected.length > 0) {
+    // MANUAL SELECTION MODE: Apply settings only to selected messages
+    // (percentage range is ignored when using manual selection)
+    inRangeSet = new Set(criteria.manuallySelected);
+
+    console.log('[applySanitizationCriteria] Manual selection mode:', {
+      selectedCount: inRangeSet.size,
+      totalMessages: workingSet.length
+    });
+  } else if (criteria.percentageRange > 0) {
+    // PERCENTAGE RANGE MODE: Apply settings to first X% of messages by position
+    // NOTE: We use message position order, NOT timestamp order, because:
+    // - Messages are displayed in conversation order (parent-child chain)
+    // - Timestamps can be out of order (agents, async tool results, clock differences)
+    // - Users expect "oldest 90%" to mean "first 90% of the conversation"
     const cutoffIndex = Math.floor(workingSet.length * (criteria.percentageRange / 100));
     inRangeSet = new Set(workingSet.slice(0, cutoffIndex).map(m => m.uuid));
 
@@ -340,15 +347,17 @@ function applySanitizationCriteria(messages, criteria) {
     });
   }
 
-  // PRIORITY 3: Message type filter - REMOVE messages of selected types (within range)
+  // If no range specified at all, apply to all messages
+  const hasRangeFilter = inRangeSet.size > 0;
+
+  // PRIORITY 2: Message type filter - REMOVE messages of selected types (within range)
   if (criteria.messageTypes && criteria.messageTypes.length > 0) {
     const typesSet = new Set(criteria.messageTypes);
     const beforeFilter = workingSet.length;
 
     workingSet = workingSet.filter(m => {
-      // If percentage range is set and message is not in range, keep it
-      const isOutOfRange = criteria.percentageRange > 0 && !inRangeSet.has(m.uuid);
-      if (isOutOfRange) {
+      // If a range filter is active (manual selection or percentage) and message is not in range, keep it
+      if (hasRangeFilter && !inRangeSet.has(m.uuid)) {
         return true; // Keep messages outside the range
       }
 
@@ -356,14 +365,13 @@ function applySanitizationCriteria(messages, criteria) {
       const messageType = getMessageType(m);
       const shouldRemove = typesSet.has(messageType);
 
-      // Debug logging - show filtering decision for messages with percentage range
-      if (criteria.percentageRange > 0 && criteria.percentageRange < 100) {
-        const inRange = inRangeSet.has(m.uuid);
+      // Debug logging
+      if (hasRangeFilter) {
         console.log('[applySanitizationCriteria] Message filtering decision:', {
           uuid: m.uuid,
           timestamp: m.timestamp,
           messageType,
-          inRange,
+          inRange: inRangeSet.has(m.uuid),
           selectedTypes: Array.from(typesSet),
           shouldRemove,
           action: shouldRemove ? 'REMOVE' : 'KEEP'
@@ -380,19 +388,60 @@ function applySanitizationCriteria(messages, criteria) {
       beforeFilter,
       afterFilter: workingSet.length,
       removedCount: beforeFilter - workingSet.length,
-      percentageRange: criteria.percentageRange,
+      hasRangeFilter,
       inRangeSetSize: inRangeSet.size
     });
+
+    // Update parentUuid chains for remaining messages to skip removed messages
+    // This prevents orphaned roots that Claude Code interprets as session boundaries
+    if (beforeFilter !== workingSet.length) {
+      // Build a map of all original messages (before filtering) to walk parent chains
+      const originalMessageMap = new Map(messages.map(m => [m.uuid, m]));
+      // Build a set of kept message UUIDs for quick lookup
+      const keptUuids = new Set(workingSet.map(m => m.uuid));
+
+      workingSet = workingSet.map(m => {
+        // If parentUuid is null or points to a kept message, no update needed
+        if (!m.parentUuid || keptUuids.has(m.parentUuid)) {
+          return m;
+        }
+
+        // Walk up the parent chain to find the nearest kept ancestor
+        let parent = m.parentUuid;
+        while (parent && !keptUuids.has(parent)) {
+          const parentMessage = originalMessageMap.get(parent);
+          if (parentMessage) {
+            parent = parentMessage.parentUuid;
+          } else {
+            // Parent not found in original messages, keep original parentUuid
+            // (dangling reference may signal continuation from external context)
+            parent = m.parentUuid;
+            break;
+          }
+        }
+
+        // Only update if we found a different ancestor
+        if (parent !== m.parentUuid) {
+          console.log('[applySanitizationCriteria] Updating parentUuid chain:', {
+            uuid: m.uuid,
+            oldParent: m.parentUuid,
+            newParent: parent
+          });
+          return { ...m, parentUuid: parent };
+        }
+
+        return m;
+      });
+    }
   }
 
-  // PRIORITY 4: Apply content-based criteria to remaining messages
+  // PRIORITY 3: Apply content-based criteria to remaining messages
   return workingSet.map((message, index) => {
     let updated = { ...message };
 
     // Check if message is in range for content criteria
-    const isInRange = criteria.percentageRange === 0 ||
-                      criteria.percentageRange === undefined ||
-                      inRangeSet.has(message.uuid);
+    // If no range filter, apply to all; otherwise only apply to messages in range
+    const isInRange = !hasRangeFilter || inRangeSet.has(message.uuid);
 
     // Only apply content criteria if in range (or no range specified)
     if (!isInRange) {
@@ -603,6 +652,11 @@ export function calculateSanitizationImpact(parsed, options) {
  * Handles both string content and array content formats:
  * - String: "hello" -> [{type:"text",text:"hello"}]
  * - Array: [{type:"text",text:"hello"}] -> kept as-is
+ *
+ * IMPORTANT: Filters out image blocks for comparison since Claude Code
+ * sometimes splits text+image into separate entries when duplicating.
+ * This allows detecting duplicates where original has text+image but
+ * duplicate has them split into separate messages.
  */
 function normalizeContent(content) {
   if (typeof content === 'string') {
@@ -611,29 +665,38 @@ function normalizeContent(content) {
   }
 
   if (Array.isArray(content)) {
-    // Normalize each item in the array
-    return content.map(item => {
+    // Normalize each item, filtering out images for comparison
+    const normalized = [];
+
+    for (const item of content) {
       if (typeof item === 'string') {
-        return { type: 'text', text: item };
+        normalized.push({ type: 'text', text: item });
+        continue;
       }
+
+      // Skip image blocks - they cause false negatives when duplicates split text+image
+      if (item.type === 'image' || item.type === 'image_url') {
+        continue;
+      }
+
       // For content blocks, extract just the comparable fields
       // This handles variations in metadata while keeping core content
       if (item.type === 'text') {
-        return { type: 'text', text: item.text };
+        normalized.push({ type: 'text', text: item.text });
+      } else if (item.type === 'thinking') {
+        normalized.push({ type: 'thinking', thinking: item.thinking });
+      } else if (item.type === 'tool_use') {
+        normalized.push({ type: 'tool_use', name: item.name, input: item.input });
+      } else if (item.type === 'tool_result') {
+        normalized.push({ type: 'tool_result', tool_use_id: item.tool_use_id, content: item.content });
+      } else {
+        // For other types, keep as-is but remove variable fields
+        const { id, ...rest } = item;
+        normalized.push(rest);
       }
-      if (item.type === 'thinking') {
-        return { type: 'thinking', thinking: item.thinking };
-      }
-      if (item.type === 'tool_use') {
-        return { type: 'tool_use', name: item.name, input: item.input };
-      }
-      if (item.type === 'tool_result') {
-        return { type: 'tool_result', tool_use_id: item.tool_use_id, content: item.content };
-      }
-      // For other types, keep as-is but remove variable fields
-      const { id, ...rest } = item;
-      return rest;
-    });
+    }
+
+    return normalized;
   }
 
   return content;
@@ -650,6 +713,12 @@ function getContentKey(message) {
 
   // Normalize the content to handle format differences
   const normalized = normalizeContent(content);
+
+  // If normalized is empty (image-only message), use UUID to make it unique
+  // This prevents all image-only messages from matching each other
+  if (Array.isArray(normalized) && normalized.length === 0) {
+    return `__image_only__${message.uuid}`;
+  }
 
   // Stringify the normalized content for comparison
   try {
@@ -706,24 +775,55 @@ export function findDuplicateMessages(messages) {
     }
   }
 
+  // Identify image-only messages (they have unique keys starting with __image_only__)
+  const imageOnlyUuids = new Set();
+  for (const message of messages) {
+    const key = getContentKey(message);
+    if (key.startsWith('__image_only__')) {
+      imageOnlyUuids.add(message.uuid);
+    }
+  }
+
   // Second pass: filter to only duplicates that are part of a block
   // A duplicate is part of a block if the message immediately before or after it
-  // (in conversation order) is also a potential duplicate
+  // (in conversation order) is also a potential duplicate OR an image-only message
+  // (image-only messages bridge the gap in split text+image duplicates)
   const blockDuplicateUuids = new Set();
 
   for (const uuid of allPotentialDuplicateUuids) {
     const idx = uuidToIndex.get(uuid);
 
-    // Check if previous message is also a duplicate
+    // Check if previous message is also a duplicate or image-only
     const prevUuid = idx > 0 ? messages[idx - 1].uuid : null;
     const prevIsDuplicate = prevUuid && allPotentialDuplicateUuids.has(prevUuid);
+    const prevIsImageOnly = prevUuid && imageOnlyUuids.has(prevUuid);
 
-    // Check if next message is also a duplicate
+    // Check if next message is also a duplicate or image-only
     const nextUuid = idx < messages.length - 1 ? messages[idx + 1].uuid : null;
     const nextIsDuplicate = nextUuid && allPotentialDuplicateUuids.has(nextUuid);
+    const nextIsImageOnly = nextUuid && imageOnlyUuids.has(nextUuid);
 
-    // Only flag if part of a block (has adjacent duplicate)
-    if (prevIsDuplicate || nextIsDuplicate) {
+    // Only flag if part of a block (has adjacent duplicate or image-only)
+    if (prevIsDuplicate || nextIsDuplicate || prevIsImageOnly || nextIsImageOnly) {
+      blockDuplicateUuids.add(uuid);
+    }
+  }
+
+  // Third pass: flag image-only messages that are adjacent to block duplicates
+  // These are likely split images from duplicated text+image messages
+  for (const uuid of imageOnlyUuids) {
+    const idx = uuidToIndex.get(uuid);
+
+    // Check if previous message is a block duplicate
+    const prevUuid = idx > 0 ? messages[idx - 1].uuid : null;
+    const prevIsBlockDuplicate = prevUuid && blockDuplicateUuids.has(prevUuid);
+
+    // Check if next message is a block duplicate
+    const nextUuid = idx < messages.length - 1 ? messages[idx + 1].uuid : null;
+    const nextIsBlockDuplicate = nextUuid && blockDuplicateUuids.has(nextUuid);
+
+    // Flag image-only message if adjacent to a block duplicate
+    if (prevIsBlockDuplicate || nextIsBlockDuplicate) {
       blockDuplicateUuids.add(uuid);
     }
   }
@@ -757,6 +857,13 @@ export function findDuplicateMessages(messages) {
           duplicateUuids.add(dup.uuid);
         }
       }
+    }
+  }
+
+  // Add image-only duplicates that were flagged (they won't be in any group)
+  for (const uuid of imageOnlyUuids) {
+    if (blockDuplicateUuids.has(uuid)) {
+      duplicateUuids.add(uuid);
     }
   }
 

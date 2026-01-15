@@ -11,7 +11,13 @@
       <span class="info-icon">ℹ️</span>
       <div class="info-text">
         <strong>Manual Selection Active:</strong>
-        {{ selectedMessageCount }} messages selected. All criteria will be ignored - only selected messages will be removed.
+        {{ selectedMessageCount }} messages selected.
+        <span v-if="criteria.messageTypes && criteria.messageTypes.length > 0">
+          Selected message types will be removed <em>within this range only</em>. Percentage slider is ignored.
+        </span>
+        <span v-else>
+          These messages will be deleted directly. Use message type filters to remove specific types within this range instead.
+        </span>
       </div>
     </div>
 
@@ -281,13 +287,18 @@ async function calculatePreview() {
   error.value = null;
 
   try {
+    // Same logic as applySanitization - determine if selection is range or deletion
+    const hasMessageTypeCriteria = criteria.value.messageTypes && criteria.value.messageTypes.length > 0;
+    const hasSelection = selectionStore.selectedMessageCount > 0;
+
     const requestBody = {
-      removeMessages: Array.from(selectionStore.selectedMessages),
+      removeMessages: (hasSelection && !hasMessageTypeCriteria)
+        ? Array.from(selectionStore.selectedMessages)
+        : [],
       removeFiles: Array.from(selectionStore.selectedFiles),
       criteria: {
         ...criteria.value,
-        // Add manual selection info for priority handling
-        manuallySelected: selectionStore.selectedMessageCount > 0
+        manuallySelected: (hasSelection && hasMessageTypeCriteria)
           ? Array.from(selectionStore.selectedMessages)
           : undefined
       }
@@ -322,13 +333,22 @@ async function applySanitization() {
   error.value = null;
 
   try {
+    // Determine if we're using selection as a range filter (with message type criteria)
+    // or as direct deletion (no message type criteria)
+    const hasMessageTypeCriteria = criteria.value.messageTypes && criteria.value.messageTypes.length > 0;
+    const hasSelection = selectionStore.selectedMessageCount > 0;
+
     const requestBody = {
-      removeMessages: Array.from(selectionStore.selectedMessages),
+      // Only send removeMessages for direct deletion (no message type filter)
+      // When using message type filter with selection, the selection is the RANGE, not deletion targets
+      removeMessages: (hasSelection && !hasMessageTypeCriteria)
+        ? Array.from(selectionStore.selectedMessages)
+        : [],
       removeFiles: Array.from(selectionStore.selectedFiles),
       criteria: {
         ...criteria.value,
-        // Add manual selection info for priority handling
-        manuallySelected: selectionStore.selectedMessageCount > 0
+        // Add manual selection as range filter when using message type criteria
+        manuallySelected: (hasSelection && hasMessageTypeCriteria)
           ? Array.from(selectionStore.selectedMessages)
           : undefined
       }
