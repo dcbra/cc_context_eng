@@ -145,8 +145,8 @@ async function callClaude(prompt, options = {}) {
       // Note: --json-schema removed as it causes CLI to hang
     ];
 
-    // Use ~/.claude_b config dir for subscription account (mirrors bash wrapper)
-    const configDir = process.env.CLAUDE_CONFIG_DIR || `${process.env.HOME}/.claude_b`;
+    // Use standard ~/.claude config dir (can override with CLAUDE_CONFIG_DIR env var)
+    const configDir = process.env.CLAUDE_CONFIG_DIR || `${process.env.HOME}/.claude`;
 
     console.log(`[Summarizer] Spawning Claude CLI with model: ${model}`);
     console.log(`[Summarizer] Config dir: ${configDir}`);
