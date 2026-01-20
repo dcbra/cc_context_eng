@@ -8,13 +8,8 @@
       <span class="info-icon">ℹ️</span>
       <div class="info-text">
         <strong>Manual Selection Active:</strong>
-        {{ selectedMessageCount }} messages selected.
-        <span v-if="criteria.messageTypes && criteria.messageTypes.length > 0">
-          Selected message types will be removed <em>within this range only</em>. Percentage slider is ignored.
-        </span>
-        <span v-else>
-          These messages will be deleted directly. Use message type filters to remove specific types within this range instead.
-        </span>
+        {{ selectedMessageCount }} messages selected as scope.
+        Criteria will be applied <em>within this selection only</em>. Percentage slider is ignored.
       </div>
     </div>
 
