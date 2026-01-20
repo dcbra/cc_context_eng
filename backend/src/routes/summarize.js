@@ -248,7 +248,11 @@ router.post('/:sessionId/apply', async (req, res, next) => {
     // Handle different output modes
     if (outputMode === 'modify') {
       // Save the summarized session back to disk (original behavior)
-      const jsonlContent = sessionToJsonl(updatedParsed, result.messages);
+      // Sort messages by timestamp to ensure chronological order
+      const sortedMessages = [...result.messages].sort((a, b) =>
+        new Date(a.timestamp) - new Date(b.timestamp)
+      );
+      const jsonlContent = sessionToJsonl(updatedParsed, sortedMessages);
       await fs.writeFile(sessionFilePath, jsonlContent, 'utf-8');
 
       res.json({
@@ -262,7 +266,11 @@ router.post('/:sessionId/apply', async (req, res, next) => {
 
     } else if (outputMode === 'export-jsonl') {
       // Export as JSONL file (don't modify original)
-      const jsonlContent = sessionToJsonl(updatedParsed, result.messages);
+      // Sort messages by timestamp to ensure chronological order
+      const sortedMessages = [...result.messages].sort((a, b) =>
+        new Date(a.timestamp) - new Date(b.timestamp)
+      );
+      const jsonlContent = sessionToJsonl(updatedParsed, sortedMessages);
       const filename = exportFilename || `${sessionId}-summarized.jsonl`;
 
       res.json({
@@ -303,9 +311,11 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         }
       }
 
-      // Messages are already in chronological order from summarization process
-      // (processed through tiers and chunks sequentially)
-      const messageOrder = result.messages;
+      // Sort messages by timestamp to ensure chronological order for markdown export
+      // (result.messages may be in graph order, not timestamp order)
+      const messageOrder = [...result.messages].sort((a, b) =>
+        new Date(a.timestamp) - new Date(b.timestamp)
+      );
 
       const finalParsed = { ...updatedParsed, messageGraph };
       const markdown = sessionToMarkdown(finalParsed, messageOrder, { format: 'markdown', full: false });
