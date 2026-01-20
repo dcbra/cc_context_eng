@@ -45,6 +45,10 @@
           <div class="section-header">
             <h3>Messages ({{ sessionData.totalMessages }})</h3>
             <div class="controls">
+              <label class="sort-toggle">
+                <input type="checkbox" v-model="sortByTimestamp" />
+                <span>Sort by time</span>
+              </label>
               <button @click="selectAllMessages" class="btn-small">Select All</button>
               <button @click="clearAllMessages" class="btn-small">Clear</button>
               <span class="selected-count">{{ selectedCount }} selected</span>
@@ -54,9 +58,9 @@
             </div>
           </div>
 
-          <div class="messages-container">
+          <div class="messages-container" :key="sortByTimestamp ? 'sorted' : 'tree'">
             <div
-              v-for="(message, index) in sessionData.messages"
+              v-for="(message, index) in displayedMessages"
               :key="message.uuid"
               class="message-card"
               :class="{
@@ -219,6 +223,7 @@ const expandedMessageId = ref(null);
 const lastSelectedIndex = ref(null);
 const expandedImage = ref(null);
 const duplicateUuidsMap = ref({}); // Track duplicate message UUIDs for highlighting (object for reactivity)
+const sortByTimestamp = ref(true);
 
 // Check if a message is a duplicate
 function isDuplicate(uuid) {
@@ -226,6 +231,16 @@ function isDuplicate(uuid) {
 }
 
 const selectedCount = computed(() => selectionStore.selectedMessageCount);
+
+// Computed property to get messages in the desired order
+const displayedMessages = computed(() => {
+  if (!sessionData.value?.messages) return [];
+  if (!sortByTimestamp.value) return sessionData.value.messages;
+  // Sort by timestamp (newest last)
+  return [...sessionData.value.messages].sort((a, b) =>
+    new Date(a.timestamp) - new Date(b.timestamp)
+  );
+});
 
 onMounted(async () => {
   await loadSession();
@@ -274,7 +289,7 @@ function handleMessageSelection(event, uuid, currentIndex) {
 
     const rangeUuids = [];
     for (let i = start; i <= end; i++) {
-      rangeUuids.push(sessionData.value.messages[i].uuid);
+      rangeUuids.push(displayedMessages.value[i].uuid);
     }
     selectionStore.selectMessageRange(rangeUuids);
   } else {
@@ -753,6 +768,27 @@ async function handleFilesUpdated() {
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+
+.sort-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #666;
+  padding: 0.3rem 0.6rem;
+  background: #f5f5f5;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+
+.sort-toggle:hover {
+  background: #e0e0e0;
+}
+
+.sort-toggle input[type="checkbox"] {
+  cursor: pointer;
 }
 
 .btn-small {

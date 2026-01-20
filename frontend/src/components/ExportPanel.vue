@@ -26,6 +26,38 @@
         </label>
       </div>
 
+      <div class="sanitize-options">
+        <div class="sanitize-header">
+          <label class="toggle-label">
+            <input type="checkbox" v-model="enableSanitize" />
+            <span class="toggle-text">Sanitize export</span>
+            <span class="toggle-hint">(remove selected message types from exported file)</span>
+          </label>
+        </div>
+        <div v-if="enableSanitize" class="message-types-grid">
+          <label class="type-checkbox">
+            <input type="checkbox" v-model="sanitizeTypes" value="tool" />
+            <span>Tool Use</span>
+          </label>
+          <label class="type-checkbox">
+            <input type="checkbox" v-model="sanitizeTypes" value="tool-result" />
+            <span>Tool Result</span>
+          </label>
+          <label class="type-checkbox">
+            <input type="checkbox" v-model="sanitizeTypes" value="thinking" />
+            <span>Thinking</span>
+          </label>
+          <label class="type-checkbox">
+            <input type="checkbox" v-model="sanitizeTypes" value="assistant" />
+            <span>Assistant</span>
+          </label>
+          <label class="type-checkbox">
+            <input type="checkbox" v-model="sanitizeTypes" value="you" />
+            <span>You (User)</span>
+          </label>
+        </div>
+      </div>
+
       <button
         @click="exportCurrentSession"
         :disabled="exporting"
@@ -125,6 +157,8 @@ const selectedFormat = ref('markdown');
 const convertFormat = ref('markdown');
 const exportFull = ref(false);
 const convertFull = ref(false);
+const enableSanitize = ref(false);
+const sanitizeTypes = ref([]);
 const exporting = ref(false);
 const converting = ref(false);
 const error = ref(null);
@@ -150,7 +184,8 @@ async function exportCurrentSession() {
   lastExport.value = null;
 
   try {
-    const result = await exportSessionToMarkdown(props.sessionId, props.projectId, selectedFormat.value, exportFull.value);
+    const typesToSanitize = enableSanitize.value ? sanitizeTypes.value : [];
+    const result = await exportSessionToMarkdown(props.sessionId, props.projectId, selectedFormat.value, exportFull.value, typesToSanitize);
     lastExport.value = result;
     downloadContent(result.content, result.filename);
   } catch (err) {
@@ -395,5 +430,48 @@ function formatSize(bytes) {
   border: 1px solid #d32f2f;
   border-radius: 6px;
   color: #d32f2f;
+}
+
+.sanitize-options {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: #f5f5f5;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+}
+
+.sanitize-header {
+  margin-bottom: 0.5rem;
+}
+
+.message-types-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.type-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.type-checkbox:hover {
+  border-color: #667eea;
+  background: #f0f4ff;
+}
+
+.type-checkbox input[type="checkbox"] {
+  cursor: pointer;
 }
 </style>

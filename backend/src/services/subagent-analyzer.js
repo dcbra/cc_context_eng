@@ -9,8 +9,10 @@ const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 /**
  * Analyze subagents in a session
  * Identifies subagent sessions spawned by the main agent
+ * Supports both old structure (agent-*.jsonl at project root) and
+ * new structure (session-id/subagents/agent-*.jsonl)
  */
-export async function analyzeSubagents(parsed, projectId) {
+export async function analyzeSubagents(parsed, projectId, sessionId = null) {
   const subagents = [];
   const sessionAgentIds = new Set();
   let mainAgentId = null;
@@ -29,12 +31,65 @@ export async function analyzeSubagents(parsed, projectId) {
     return subagents;
   }
 
+  // Collect all agent files from both old and new structures
+  const agentFilesToAnalyze = [];
+
+  // 1. Old structure: agent-*.jsonl files at project root
   const files = await fs.readdir(projectPath);
-  const agentFiles = files.filter(f => f.startsWith('agent-') && f.endsWith('.jsonl'));
+  const rootAgentFiles = files.filter(f => f.startsWith('agent-') && f.endsWith('.jsonl'));
+  for (const agentFile of rootAgentFiles) {
+    agentFilesToAnalyze.push({
+      fileName: agentFile,
+      filePath: path.join(projectPath, agentFile),
+      agentId: agentFile.replace('agent-', '').replace('.jsonl', '')
+    });
+  }
+
+  // 2. New structure: session-id/subagents/agent-*.jsonl
+  // Check both the provided sessionId and all session directories
+  const sessionDirsToCheck = [];
+
+  if (sessionId) {
+    // If sessionId provided, prioritize that session's subagents directory
+    sessionDirsToCheck.push(sessionId);
+  }
+
+  // Also check all directories that might contain subagents
+  const projectEntries = await fs.readdir(projectPath, { withFileTypes: true });
+  for (const entry of projectEntries) {
+    if (entry.isDirectory() && !sessionDirsToCheck.includes(entry.name)) {
+      sessionDirsToCheck.push(entry.name);
+    }
+  }
+
+  for (const sessionDir of sessionDirsToCheck) {
+    const subagentsPath = path.join(projectPath, sessionDir, 'subagents');
+    if (await fs.pathExists(subagentsPath)) {
+      try {
+        const subagentFiles = await fs.readdir(subagentsPath);
+        for (const agentFile of subagentFiles) {
+          if (agentFile.startsWith('agent-') && agentFile.endsWith('.jsonl')) {
+            const agentId = agentFile.replace('agent-', '').replace('.jsonl', '');
+            // Avoid duplicates
+            if (!agentFilesToAnalyze.find(a => a.agentId === agentId)) {
+              agentFilesToAnalyze.push({
+                fileName: agentFile,
+                filePath: path.join(subagentsPath, agentFile),
+                agentId,
+                parentSessionId: sessionDir
+              });
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to read subagents in ${sessionDir}:`, error.message);
+      }
+    }
+  }
 
   // Analyze each agent file
-  for (const agentFile of agentFiles) {
-    const agentId = agentFile.replace('agent-', '').replace('.jsonl', '');
+  for (const agentInfo of agentFilesToAnalyze) {
+    const { agentId, filePath: agentPath, fileName: agentFile, parentSessionId } = agentInfo;
 
     // Skip if it's the main agent
     if (agentId === mainAgentId) continue;
@@ -43,7 +98,6 @@ export async function analyzeSubagents(parsed, projectId) {
     if (!sessionAgentIds.has(agentId)) continue;
 
     try {
-      const agentPath = path.join(projectPath, agentFile);
       const agentParsed = await parseJsonlFile(agentPath);
 
       // Calculate subagent tokens
@@ -60,6 +114,7 @@ export async function analyzeSubagents(parsed, projectId) {
         filePath: agentPath,
         fileName: agentFile,
         spawnedBy: mainAgentId,
+        parentSessionId,
         messageCount,
         tokens: {
           total: totalTokens,

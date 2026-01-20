@@ -73,7 +73,7 @@ router.get('/:sessionId', async (req, res, next) => {
     const filesRead = trackFilesInSession(parsed.messages);
 
     // Analyze subagents (if this is a main session)
-    const subagents = await analyzeSubagents(parsed, projectId);
+    const subagents = await analyzeSubagents(parsed, projectId, sessionId);
 
     // Calculate token breakdown
     const tokenBreakdown = calculateTokenBreakdown(parsed, subagents);

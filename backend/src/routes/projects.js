@@ -58,8 +58,25 @@ async function listProjects() {
     const projectId = entry.name;
     const projectPath = path.join(PROJECTS_DIR, projectId);
     const stats = await fs.stat(projectPath);
-    const files = await fs.readdir(projectPath);
-    const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
+    const projectEntries = await fs.readdir(projectPath, { withFileTypes: true });
+
+    // Count JSONL files at root level
+    let sessionCount = projectEntries.filter(e => e.isFile() && e.name.endsWith('.jsonl')).length;
+
+    // Also count subagents in session subdirectories (new structure)
+    for (const projectEntry of projectEntries) {
+      if (projectEntry.isDirectory()) {
+        const subagentsPath = path.join(projectPath, projectEntry.name, 'subagents');
+        if (await fs.pathExists(subagentsPath)) {
+          try {
+            const subagentFiles = await fs.readdir(subagentsPath);
+            sessionCount += subagentFiles.filter(f => f.endsWith('.jsonl')).length;
+          } catch (error) {
+            // Ignore errors reading subagent directories
+          }
+        }
+      }
+    }
 
     // Decode project name (e.g., -home-dac-github-project -> /home/dac/github/project)
     const decodedName = decodeProjectPath(projectId);
@@ -67,7 +84,7 @@ async function listProjects() {
     projects.push({
       id: projectId,
       name: decodedName,
-      sessionCount: jsonlFiles.length,
+      sessionCount,
       lastModified: stats.mtime,
       size: stats.size
     });
@@ -78,37 +95,83 @@ async function listProjects() {
 
 /**
  * List sessions in a project
+ * Supports both old structure (agent-*.jsonl at project root) and
+ * new structure (session-id/subagents/agent-*.jsonl)
  */
 async function listSessions(projectPath, projectId) {
-  const files = await fs.readdir(projectPath);
+  const entries = await fs.readdir(projectPath, { withFileTypes: true });
   const sessions = [];
 
-  for (const file of files) {
-    if (!file.endsWith('.jsonl')) continue;
+  for (const entry of entries) {
+    // Handle JSONL files at project root (both sessions and old-style subagents)
+    if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+      const file = entry.name;
+      const filePath = path.join(projectPath, file);
+      const stats = await fs.stat(filePath);
+      const fileSize = stats.size;
 
-    const filePath = path.join(projectPath, file);
-    const stats = await fs.stat(filePath);
-    const fileSize = stats.size;
+      // Count actual messages (user, assistant, system records only)
+      const content = await fs.readFile(filePath, 'utf-8');
+      const messageCount = (content.match(/"type":"(user|assistant|system)"/g) || []).length;
 
-    // Count lines (approximate message count)
-    const content = await fs.readFile(filePath, 'utf-8');
-    const messageCount = (content.match(/\n/g) || []).length;
+      // Determine if this is a main session or subagent
+      const isSubagent = file.startsWith('agent-');
+      const sessionId = file.replace('.jsonl', '');
 
-    // Determine if this is a main session or subagent
-    const isSubagent = file.startsWith('agent-');
-    const sessionId = file.replace('.jsonl', '');
+      sessions.push({
+        id: sessionId,
+        projectId,
+        fileName: file,
+        filePath,
+        size: fileSize,
+        messageCount,
+        isSubagent,
+        type: isSubagent ? 'subagent' : 'session',
+        lastModified: stats.mtime
+      });
+    }
 
-    sessions.push({
-      id: sessionId,
-      projectId,
-      fileName: file,
-      filePath,
-      size: fileSize,
-      messageCount,
-      isSubagent,
-      type: isSubagent ? 'subagent' : 'session',
-      lastModified: stats.mtime
-    });
+    // Handle session directories with subagents subdirectory (new structure)
+    if (entry.isDirectory()) {
+      const sessionDirPath = path.join(projectPath, entry.name);
+      const subagentsPath = path.join(sessionDirPath, 'subagents');
+
+      // Check if this directory has a subagents subdirectory
+      if (await fs.pathExists(subagentsPath)) {
+        try {
+          const subagentFiles = await fs.readdir(subagentsPath);
+
+          for (const subagentFile of subagentFiles) {
+            if (!subagentFile.endsWith('.jsonl')) continue;
+
+            const filePath = path.join(subagentsPath, subagentFile);
+            const stats = await fs.stat(filePath);
+            const fileSize = stats.size;
+
+            // Count actual messages (user, assistant, system records only)
+            const content = await fs.readFile(filePath, 'utf-8');
+            const messageCount = (content.match(/"type":"(user|assistant|system)"/g) || []).length;
+
+            const sessionId = subagentFile.replace('.jsonl', '');
+
+            sessions.push({
+              id: sessionId,
+              projectId,
+              fileName: subagentFile,
+              filePath,
+              size: fileSize,
+              messageCount,
+              isSubagent: true,
+              type: 'subagent',
+              parentSessionId: entry.name, // Reference to parent session directory
+              lastModified: stats.mtime
+            });
+          }
+        } catch (error) {
+          console.warn(`Failed to read subagents in ${entry.name}:`, error.message);
+        }
+      }
+    }
   }
 
   return sessions.sort((a, b) => b.lastModified - a.lastModified);

@@ -73,14 +73,16 @@ export async function removeDuplicates(sessionId, projectId) {
   return response.json();
 }
 
-export async function exportSessionToMarkdown(sessionId, projectId, format = 'markdown', full = false) {
-  const response = await fetch(`${API_BASE}/export/${sessionId}/markdown?projectId=${encodeURIComponent(projectId)}&format=${format}&full=${full}`);
+export async function exportSessionToMarkdown(sessionId, projectId, format = 'markdown', full = false, sanitizeTypes = []) {
+  const sanitizeParam = sanitizeTypes.length > 0 ? `&sanitize=${sanitizeTypes.join(',')}` : '';
+  const response = await fetch(`${API_BASE}/export/${sessionId}/markdown?projectId=${encodeURIComponent(projectId)}&format=${format}&full=${full}${sanitizeParam}`);
   if (!response.ok) throw new Error('Failed to export session');
   return response.json();
 }
 
-export async function exportBackupToMarkdown(sessionId, projectId, version, format = 'markdown', full = false) {
-  const response = await fetch(`${API_BASE}/export/${sessionId}/backup/${version}/markdown?projectId=${encodeURIComponent(projectId)}&format=${format}&full=${full}`);
+export async function exportBackupToMarkdown(sessionId, projectId, version, format = 'markdown', full = false, sanitizeTypes = []) {
+  const sanitizeParam = sanitizeTypes.length > 0 ? `&sanitize=${sanitizeTypes.join(',')}` : '';
+  const response = await fetch(`${API_BASE}/export/${sessionId}/backup/${version}/markdown?projectId=${encodeURIComponent(projectId)}&format=${format}&full=${full}${sanitizeParam}`);
   if (!response.ok) throw new Error('Failed to export backup');
   return response.json();
 }

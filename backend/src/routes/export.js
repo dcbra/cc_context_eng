@@ -8,6 +8,7 @@ import { analyzeSubagents } from '../services/subagent-analyzer.js';
 import { calculateTokenBreakdown } from '../services/token-calculator.js';
 import { getSessionBackupDir } from '../services/backup-manager.js';
 import { sessionToMarkdown, sessionToPlainText, createSessionReport } from '../utils/markdown-export.js';
+import { sanitizeSession } from '../services/sanitizer.js';
 
 const router = express.Router();
 const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
@@ -32,18 +33,20 @@ const upload = multer({
  *   - projectId: required
  *   - format: 'markdown' | 'plain' | 'report' (default: 'markdown')
  *   - full: 'true' | 'false' - whether to include full content without truncation (default: 'false')
+ *   - sanitize: comma-separated list of message types to remove (tool,tool-result,thinking,assistant,you)
  */
 router.get('/:sessionId/markdown', async (req, res, next) => {
   try {
     const { sessionId } = req.params;
-    const { projectId, format = 'markdown', full = 'false' } = req.query;
+    const { projectId, format = 'markdown', full = 'false', sanitize = '' } = req.query;
 
     if (!sessionId || !projectId) {
       return res.status(400).json({ error: 'Missing sessionId or projectId' });
     }
 
     const sessionFilePath = path.join(PROJECTS_DIR, projectId, `${sessionId}.jsonl`);
-    const options = { full: full === 'true' };
+    const sanitizeTypes = sanitize ? sanitize.split(',').filter(t => t.trim()) : [];
+    const options = { full: full === 'true', sanitizeTypes };
     const result = await exportSessionAsMarkdown(sessionFilePath, sessionId, projectId, format, null, options);
 
     res.json(result);
@@ -59,11 +62,12 @@ router.get('/:sessionId/markdown', async (req, res, next) => {
  *   - projectId: required
  *   - format: 'markdown' | 'plain' | 'report' (default: 'markdown')
  *   - full: 'true' | 'false' - whether to include full content without truncation (default: 'false')
+ *   - sanitize: comma-separated list of message types to remove (tool,tool-result,thinking,assistant,you)
  */
 router.get('/:sessionId/backup/:version/markdown', async (req, res, next) => {
   try {
     const { sessionId, version } = req.params;
-    const { projectId, format = 'markdown', full = 'false' } = req.query;
+    const { projectId, format = 'markdown', full = 'false', sanitize = '' } = req.query;
 
     if (!sessionId || !projectId || !version) {
       return res.status(400).json({ error: 'Missing required parameters' });
@@ -71,7 +75,8 @@ router.get('/:sessionId/backup/:version/markdown', async (req, res, next) => {
 
     const backupDir = getSessionBackupDir(projectId, sessionId);
     const backupFilePath = path.join(backupDir, `v${version}.jsonl`);
-    const options = { full: full === 'true' };
+    const sanitizeTypes = sanitize ? sanitize.split(',').filter(t => t.trim()) : [];
+    const options = { full: full === 'true', sanitizeTypes };
     const result = await exportSessionAsMarkdown(backupFilePath, sessionId, projectId, format, version, options);
 
     res.json(result);
@@ -115,30 +120,53 @@ router.post('/convert', upload.single('file'), async (req, res, next) => {
  * @param {number|null} backupVersion - Backup version number if exporting a backup
  * @param {Object} options - Export options
  * @param {boolean} options.full - Whether to include full content without truncation
+ * @param {string[]} options.sanitizeTypes - Message types to remove (tool, tool-result, thinking, assistant, you)
  */
 async function exportSessionAsMarkdown(filePath, sessionId, projectId, format, backupVersion = null, options = {}) {
-  const parsed = await parseJsonlFile(filePath);
+  let parsed = await parseJsonlFile(filePath);
+
+  // Apply sanitization if message types are specified
+  const sanitizeTypes = options.sanitizeTypes || [];
+  let sanitizedCount = 0;
+  if (sanitizeTypes.length > 0) {
+    const sanitizeResult = sanitizeSession(parsed, {
+      removeCriteria: {
+        messageTypes: sanitizeTypes,
+        percentageRange: 100 // Apply to all messages
+      }
+    });
+    // Create a new parsed object with sanitized messages
+    parsed = {
+      ...parsed,
+      messages: sanitizeResult.messages
+    };
+    sanitizedCount = sanitizeResult.changes.removedMessages || 0;
+  }
+
   const messageOrder = getMessageOrder(parsed);
   const filesRead = trackFilesInSession(parsed.messages);
-  const subagents = await analyzeSubagents(parsed, projectId);
+  const subagents = await analyzeSubagents(parsed, projectId, sessionId);
   const tokenBreakdown = calculateTokenBreakdown(parsed, subagents);
 
   let content;
   let filename;
 
+  // Add sanitize suffix to filename if sanitization was applied
+  const sanitizeSuffix = sanitizeTypes.length > 0 ? '-sanitized' : '';
+
   switch (format) {
     case 'plain':
       content = sessionToPlainText(messageOrder);
-      filename = `${sessionId}${backupVersion ? `-v${backupVersion}` : ''}.txt`;
+      filename = `${sessionId}${backupVersion ? `-v${backupVersion}` : ''}${sanitizeSuffix}.txt`;
       break;
     case 'report':
       content = createSessionReport(parsed, messageOrder, filesRead, tokenBreakdown, subagents, options);
-      filename = `${sessionId}${backupVersion ? `-v${backupVersion}` : ''}-report.md`;
+      filename = `${sessionId}${backupVersion ? `-v${backupVersion}` : ''}${sanitizeSuffix}-report.md`;
       break;
     case 'markdown':
     default:
       content = sessionToMarkdown(parsed, messageOrder, options);
-      filename = `${sessionId}${backupVersion ? `-v${backupVersion}` : ''}.md`;
+      filename = `${sessionId}${backupVersion ? `-v${backupVersion}` : ''}${sanitizeSuffix}.md`;
       break;
   }
 
@@ -149,6 +177,8 @@ async function exportSessionAsMarkdown(filePath, sessionId, projectId, format, b
     sessionId,
     backupVersion,
     full: options.full || false,
+    sanitized: sanitizeTypes.length > 0,
+    sanitizeTypes,
     stats: {
       messageCount: messageOrder.length,
       fileCount: filesRead.length,

@@ -22,6 +22,36 @@
           <span class="toggle-text">Full content export</span>
           <span class="toggle-hint">(includes complete tool results without truncation)</span>
         </label>
+
+        <div class="sanitize-section">
+          <label class="toggle-label">
+            <input type="checkbox" v-model="enableSanitize" />
+            <span class="toggle-text">Sanitize export</span>
+            <span class="toggle-hint">(remove selected message types from exported file)</span>
+          </label>
+          <div v-if="enableSanitize" class="message-types-grid">
+            <label class="type-checkbox">
+              <input type="checkbox" v-model="sanitizeTypes" value="tool" />
+              <span>Tool Use</span>
+            </label>
+            <label class="type-checkbox">
+              <input type="checkbox" v-model="sanitizeTypes" value="tool-result" />
+              <span>Tool Result</span>
+            </label>
+            <label class="type-checkbox">
+              <input type="checkbox" v-model="sanitizeTypes" value="thinking" />
+              <span>Thinking</span>
+            </label>
+            <label class="type-checkbox">
+              <input type="checkbox" v-model="sanitizeTypes" value="assistant" />
+              <span>Assistant</span>
+            </label>
+            <label class="type-checkbox">
+              <input type="checkbox" v-model="sanitizeTypes" value="you" />
+              <span>You (User)</span>
+            </label>
+          </div>
+        </div>
       </div>
 
       <div class="backups-grid">
@@ -119,6 +149,8 @@ const loading = ref(true);
 const error = ref(null);
 const verificationResult = ref(null);
 const exportFull = ref(true);
+const enableSanitize = ref(false);
+const sanitizeTypes = ref([]);
 
 onMounted(() => {
   loadBackups();
@@ -201,7 +233,8 @@ async function deleteBackup(version) {
 
 async function exportBackup(version) {
   try {
-    const result = await exportBackupToMarkdown(props.sessionId, props.projectId, version, 'markdown', exportFull.value);
+    const typesToSanitize = enableSanitize.value ? sanitizeTypes.value : [];
+    const result = await exportBackupToMarkdown(props.sessionId, props.projectId, version, 'markdown', exportFull.value, typesToSanitize);
     downloadContent(result.content, result.filename);
   } catch (err) {
     error.value = err.message;
@@ -329,6 +362,42 @@ function formatSize(bytes) {
 .toggle-hint {
   font-size: 0.85rem;
   color: #666;
+}
+
+.sanitize-section {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.message-types-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+}
+
+.type-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.type-checkbox:hover {
+  border-color: #667eea;
+  background: #f0f4ff;
+}
+
+.type-checkbox input[type="checkbox"] {
+  cursor: pointer;
 }
 
 .backups-grid {
