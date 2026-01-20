@@ -354,7 +354,7 @@ export async function summarizeMessages(messages, options = {}) {
   // Filter to only user/assistant text messages and sort by timestamp
   const conversationMessages = messages
     .filter(m => (m.type === 'user' || m.type === 'assistant') && extractTextContent(m).trim())
-    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
 
   if (conversationMessages.length < 2) {
     throw new Error('Need at least 2 conversation messages to summarize');
@@ -412,7 +412,7 @@ export async function summarizeAndIntegrate(parsed, messageUuids, options = {}) 
   // Filter to conversation messages only and sort by timestamp
   const conversationMessages = targetMessages
     .filter(m => (m.type === 'user' || m.type === 'assistant') && extractTextContent(m).trim())
-    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
 
   if (conversationMessages.length < 2) {
     throw new Error('Need at least 2 user/assistant messages to summarize');
@@ -549,7 +549,7 @@ export async function summarizeWithTiers(messages, options = {}) {
   // Filter to only user/assistant text messages and sort by timestamp
   const conversationMessages = messages
     .filter(m => (m.type === 'user' || m.type === 'assistant') && extractTextContent(m).trim())
-    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
 
   if (conversationMessages.length < 2) {
     throw new Error('Need at least 2 conversation messages to summarize');
@@ -681,7 +681,7 @@ export async function summarizeAndIntegrateWithTiers(parsed, messageUuids, optio
   // Filter to conversation messages only and sort by timestamp
   const conversationMessages = targetMessages
     .filter(m => (m.type === 'user' || m.type === 'assistant') && extractTextContent(m).trim())
-    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
 
   if (conversationMessages.length < 2) {
     throw new Error('Need at least 2 user/assistant messages to summarize');
