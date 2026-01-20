@@ -11,13 +11,14 @@ A web application for managing, analyzing, and sanitizing Claude Code context fi
 - **Context Window Usage**: Visual representation of context window utilization (200k tokens for Claude)
 
 ### ✂️ Context Sanitization
-- **Selective Message Removal**: Choose specific messages to remove while maintaining conversation threading
+- **Message Type Removal**: Remove messages by type (Tool Use, Tool Result, Thinking, Assistant, User)
 - **File Content Removal**: Remove file content from tool results with options to keep first/last read
-- **Smart Criteria**:
+- **Content Cleaning**:
   - Remove error tool results
-  - Shorten verbose explanations
+  - Truncate verbose explanations (>500 chars)
   - Remove duplicate file reads
-- **Impact Preview**: See token savings before applying changes
+- **Scope Control**: Apply criteria to all messages, a percentage range, or manually selected messages
+- **Impact Preview**: See removals and modifications before applying changes
 
 ### 🤖 AI-Powered Summarization
 - **Conversation Compression**: Use Claude CLI to intelligently summarize conversation ranges
@@ -164,11 +165,12 @@ npm run frontend:build
 
 ### 5. Sanitize Context
 - **Sanitize Tab** lets you:
-  - Select specific messages to remove
+  - Set criteria (message types to remove, error cleanup, verbose truncation)
   - Select files to remove content from
-  - Apply criteria (remove errors, verbose text, duplicates)
-  - Preview impact (messages/tokens freed)
-  - Apply changes
+  - Choose scope (percentage range or manual selection in Messages tab)
+  - Preview impact (shows removals AND content modifications)
+  - Apply changes only when criteria match messages in scope
+- **Note**: To delete specific messages directly, use "Delete Selected" in the Messages tab
 
 ### 6. Manage Backups
 - **Backups Tab** shows:
@@ -225,10 +227,12 @@ The **Message Range slider** (0-100%) determines which messages are affected by 
 | **AI Summarization** | Summarizes messages within the selected range. Useful for compressing old context while keeping recent messages intact. |
 | **Duplicate Detection** | **Independent** - Scans ALL messages regardless of range. Duplicates are detected globally. |
 
-**Manual Selection Override:**
-If you manually select messages in the Messages tab, those exact messages are used and the percentage range slider is ignored. It's either/or:
-- **With manual selection**: Operations apply to exactly the messages you selected
-- **Without manual selection**: Operations apply to messages within the percentage range
+**Manual Selection as Scope:**
+If you manually select messages in the Messages tab, those messages become the scope for sanitization criteria. The percentage range slider is ignored. It's either/or:
+- **With manual selection**: Criteria apply only within the selected messages
+- **Without manual selection**: Criteria apply to messages within the percentage range
+
+**Note**: Manual selection does NOT directly delete messages. It defines the scope where criteria are applied. To delete messages directly, use "Delete Selected" in the Messages tab.
 
 ### Subagent Tracking
 - Subagents are identified by `isSidechain: true` and unique agentId
