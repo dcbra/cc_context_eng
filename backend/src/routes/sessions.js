@@ -153,53 +153,60 @@ router.post('/:sessionId/preview', async (req, res, next) => {
 
     // Count messages affected by criteria (message types, percentage range)
     if (criteria) {
-      // If manual selections, only those are affected
+      // Determine the scope: manual selection or percentage range
+      let affectedMessages = messageOrder;
+
       if (criteria.manuallySelected && criteria.manuallySelected.length > 0) {
-        removedMessages = criteria.manuallySelected.length;
+        // Manual selection defines the scope
         const selectedSet = new Set(criteria.manuallySelected);
-        removedTokens = messageOrder
-          .filter(m => selectedSet.has(m.uuid))
-          .reduce((sum, m) => sum + m.tokens.total, 0);
-      } else {
-        // Calculate based on percentage range and message types
-        let affectedMessages = messageOrder;
+        affectedMessages = messageOrder.filter(m => selectedSet.has(m.uuid));
+      } else if (criteria.percentageRange > 0) {
+        // Percentage range defines the scope
+        const cutoffIndex = Math.floor(messageOrder.length * (criteria.percentageRange / 100));
+        affectedMessages = messageOrder.slice(0, cutoffIndex);
+      }
 
-        // Apply percentage range (by position, not timestamp)
-        // Messages are already in conversation order from getMessageOrder()
-        if (criteria.percentageRange > 0) {
-          const cutoffIndex = Math.floor(messageOrder.length * (criteria.percentageRange / 100));
-          affectedMessages = messageOrder.slice(0, cutoffIndex);
-        }
+      // Now apply criteria filters to the scope
+      // Helper to check message type
+      const matchesMessageType = (msg, typesSet) => {
+        const content = Array.isArray(msg.content) ? msg.content : [];
 
-        // Apply message type filter
+        // Tool result detection (3 formats):
+        if (content.some(c => c && c.type === 'tool_result')) return typesSet.has('tool-result');
+        if (content.some(c => c && c.type === 'text' && c.converted_from === 'tool_result')) return typesSet.has('tool-result');
+        if (msg.raw?.toolUseResult != null) return typesSet.has('tool-result');
+
+        if (content.some(c => c && c.type === 'thinking')) return typesSet.has('thinking');
+
+        // Check for actual tool_use OR converted tool_use blocks
+        if (msg.toolUses && msg.toolUses.length > 0) return typesSet.has('tool');
+        if (content.some(c => c && c.type === 'text' && c.converted_from === 'tool_use')) return typesSet.has('tool');
+
+        if (msg.type === 'assistant') return typesSet.has('assistant');
+        if (msg.type === 'user') return typesSet.has('you');
+        return false;
+      };
+
+      // Check if any actual criteria are set (not just scope)
+      const hasCriteria =
+        (criteria.messageTypes && criteria.messageTypes.length > 0) ||
+        criteria.removeErrors ||
+        criteria.removeVerbose ||
+        criteria.removeDuplicateFileReads;
+
+      if (hasCriteria) {
+        // Apply message type filter if specified
         if (criteria.messageTypes && criteria.messageTypes.length > 0) {
           const typesSet = new Set(criteria.messageTypes);
-          affectedMessages = affectedMessages.filter(msg => {
-            const content = Array.isArray(msg.content) ? msg.content : [];
-
-            // Tool result detection (3 formats):
-            // 1. Standard Claude API: tool_result content blocks
-            if (content.some(c => c && c.type === 'tool_result')) return typesSet.has('tool-result');
-            // 2. Converted tool_result blocks
-            if (content.some(c => c && c.type === 'text' && c.converted_from === 'tool_result')) return typesSet.has('tool-result');
-            // 3. Claude Code format: toolUseResult field
-            if (msg.raw?.toolUseResult != null) return typesSet.has('tool-result');
-
-            if (content.some(c => c && c.type === 'thinking')) return typesSet.has('thinking');
-
-            // Check for actual tool_use OR converted tool_use blocks
-            if (msg.toolUses && msg.toolUses.length > 0) return typesSet.has('tool');
-            if (content.some(c => c && c.type === 'text' && c.converted_from === 'tool_use')) return typesSet.has('tool');
-
-            if (msg.type === 'assistant') return typesSet.has('assistant');
-            if (msg.type === 'user') return typesSet.has('you');
-            return false;
-          });
-
-          removedMessages = affectedMessages.length;
-          removedTokens = affectedMessages.reduce((sum, m) => sum + m.tokens.total, 0);
+          affectedMessages = affectedMessages.filter(msg => matchesMessageType(msg, typesSet));
         }
+
+        // TODO: Add other criteria filters here (removeErrors, removeVerbose, etc.)
+
+        removedMessages = affectedMessages.length;
+        removedTokens = affectedMessages.reduce((sum, m) => sum + m.tokens.total, 0);
       }
+      // If no criteria set, removedMessages stays at 0
     }
 
     // Calculate final values
