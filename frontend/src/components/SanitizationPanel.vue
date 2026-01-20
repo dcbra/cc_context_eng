@@ -66,6 +66,8 @@
         </label>
       </div>
 
+      <div class="criteria-divider"></div>
+
       <div class="criteria-group">
         <h5 class="group-title">Message Types to Remove</h5>
         <div class="message-types-grid">
@@ -520,7 +522,10 @@ const appliedCriteria = computed(() => {
   if (criteria.value.removeErrors) count++;
   if (criteria.value.removeVerbose) count++;
   if (criteria.value.removeDuplicateFileReads) count++;
-  if (criteria.value.messageTypes && criteria.value.messageTypes.length > 0) count++;
+  // Count each selected message type as a separate criteria
+  if (criteria.value.messageTypes && criteria.value.messageTypes.length > 0) {
+    count += criteria.value.messageTypes.length;
+  }
   if (criteria.value.percentageRange > 0) count++;
   return count;
 });
@@ -855,6 +860,12 @@ onMounted(() => {
 .criteria-list {
   display: grid;
   gap: 0.75rem;
+}
+
+.criteria-divider {
+  height: 1px;
+  background: linear-gradient(to right, transparent, #e0e0e0 20%, #e0e0e0 80%, transparent);
+  margin: 0.75rem 0;
 }
 
 .criteria-item {
