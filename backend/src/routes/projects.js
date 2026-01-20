@@ -78,7 +78,7 @@ async function listProjects() {
       }
     }
 
-    // Decode project name (e.g., -home-dac-github-project -> /home/dac/github/project)
+    // Decode project name (e.g., -home-user-github-project -> /home/user/github/project)
     const decodedName = decodeProjectPath(projectId);
 
     projects.push({
@@ -179,7 +179,7 @@ async function listSessions(projectPath, projectId) {
 
 /**
  * Decode project path from encoded name
- * e.g., -home-dac-github-project -> /home/dac/github/project
+ * e.g., -home-user-github-project -> /home/user/github/project
  * Normalizes backslashes (from Windows) to forward slashes for display
  */
 function decodeProjectPath(projectId) {
