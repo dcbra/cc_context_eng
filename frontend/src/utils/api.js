@@ -100,3 +100,44 @@ export async function convertJsonlToMarkdown(file, format = 'markdown', full = f
   if (!response.ok) throw new Error('Failed to convert file');
   return response.json();
 }
+
+// Summarization API functions
+
+export async function checkSummarizationStatus() {
+  const response = await fetch(`${API_BASE}/summarize/status`);
+  if (!response.ok) throw new Error('Failed to check summarization status');
+  return response.json();
+}
+
+export async function getSummarizationPresets() {
+  const response = await fetch(`${API_BASE}/summarize/presets`);
+  if (!response.ok) throw new Error('Failed to get summarization presets');
+  return response.json();
+}
+
+export async function previewSummarization(sessionId, projectId, options) {
+  const response = await fetch(`${API_BASE}/summarize/${sessionId}/preview?projectId=${encodeURIComponent(projectId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options)
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to preview summarization' }));
+    throw new Error(error.error || error.details || 'Failed to preview summarization');
+  }
+  return response.json();
+}
+
+export async function applySummarization(sessionId, projectId, options) {
+  const response = await fetch(`${API_BASE}/summarize/${sessionId}/apply?projectId=${encodeURIComponent(projectId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options)
+  });
+  // Return the full error object for better UI feedback
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: 'Failed to apply summarization' }));
+    return errorData; // Return error object instead of throwing
+  }
+  return response.json();
+}

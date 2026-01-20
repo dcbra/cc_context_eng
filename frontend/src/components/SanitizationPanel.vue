@@ -211,6 +211,245 @@
       </div>
     </div>
 
+    <!-- AI Summarization Section -->
+    <div class="summarization-section">
+      <h4>AI Summarization</h4>
+
+      <div v-if="!summarizationAvailable" class="summarization-unavailable">
+        <span class="warning-icon">!</span>
+        <div class="warning-text">
+          <strong>Claude CLI not available</strong>
+          <span>Install and authenticate Claude CLI to enable AI summarization.</span>
+          <code>npm install -g @anthropic-ai/claude-code</code>
+        </div>
+      </div>
+
+      <div v-else class="summarization-content">
+        <div class="summarization-status">
+          <span class="status-available">Claude CLI ready</span>
+          <span class="status-version">{{ summarizationVersion }}</span>
+        </div>
+
+        <!-- Compaction Mode Toggle -->
+        <div class="compaction-mode-toggle">
+          <label class="toggle-option" :class="{ active: !summarizationOptions.useTiers }">
+            <input type="radio" :value="false" v-model="summarizationOptions.useTiers" />
+            <span>Uniform</span>
+          </label>
+          <label class="toggle-option" :class="{ active: summarizationOptions.useTiers }">
+            <input type="radio" :value="true" v-model="summarizationOptions.useTiers" />
+            <span>Variable (Tiered)</span>
+          </label>
+        </div>
+
+        <!-- Uniform Compaction Options -->
+        <div v-if="!summarizationOptions.useTiers" class="summarization-options">
+          <div class="option-row">
+            <label class="option-label">
+              <span class="option-name">Compaction Ratio</span>
+              <select v-model.number="summarizationOptions.compactionRatio" class="option-select">
+                <option v-for="ratio in compactionRatios" :key="ratio" :value="ratio">
+                  {{ ratio }}:1{{ ratio <= 5 ? ' (Light)' : ratio <= 15 ? ' (Moderate)' : ratio <= 25 ? ' (Strong)' : ' (Aggressive)' }}
+                </option>
+              </select>
+              <span class="option-desc">Messages compressed per output</span>
+            </label>
+          </div>
+
+          <div class="option-row">
+            <label class="option-label">
+              <span class="option-name">Aggressiveness</span>
+              <select v-model="summarizationOptions.aggressiveness" class="option-select">
+                <option value="minimal">Minimal - Preserve detail</option>
+                <option value="moderate">Moderate - Balanced</option>
+                <option value="aggressive">Aggressive - Max compression</option>
+              </select>
+              <span class="option-desc">How much detail to preserve</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Tiered Compaction Options -->
+        <div v-else class="tiered-options">
+          <div class="tier-preset-row">
+            <label class="option-label">
+              <span class="option-name">Preset</span>
+              <select v-model="summarizationOptions.tierPreset" class="option-select">
+                <option value="gentle">Gentle - Light compression</option>
+                <option value="standard">Standard - Balanced</option>
+                <option value="aggressive">Aggressive - Max compression</option>
+                <option value="custom">Custom tiers</option>
+              </select>
+            </label>
+          </div>
+
+          <!-- Preset Description -->
+          <div v-if="summarizationOptions.tierPreset !== 'custom' && summarizationPresets" class="preset-description">
+            <span v-if="summarizationPresets[summarizationOptions.tierPreset]">
+              {{ summarizationPresets[summarizationOptions.tierPreset].description }}
+            </span>
+          </div>
+
+          <!-- Tier Visualization -->
+          <div class="tier-visualization">
+            <div
+              v-for="(tier, idx) in (summarizationOptions.tierPreset === 'custom'
+                ? summarizationOptions.customTiers
+                : (summarizationPresets && summarizationPresets[summarizationOptions.tierPreset]?.tiers) || [])"
+              :key="idx"
+              class="tier-bar"
+              :style="{ width: (tier.endPercent - (idx > 0 ? (summarizationOptions.tierPreset === 'custom' ? summarizationOptions.customTiers : summarizationPresets[summarizationOptions.tierPreset].tiers)[idx-1].endPercent : 0)) + '%' }"
+              :class="'tier-' + tier.aggressiveness"
+            >
+              <span class="tier-label">{{ tier.compactionRatio }}:1</span>
+            </div>
+          </div>
+          <div class="tier-legend">
+            <span>0%</span>
+            <span>Older messages</span>
+            <span>Recent messages</span>
+            <span>100%</span>
+          </div>
+
+          <!-- Custom Tier Editor -->
+          <div v-if="summarizationOptions.tierPreset === 'custom'" class="custom-tiers">
+            <div class="custom-tiers-header">
+              <span class="header-range">Range</span>
+              <span class="header-ratio">Ratio</span>
+              <span class="header-level">Level</span>
+            </div>
+            <div v-for="(tier, idx) in summarizationOptions.customTiers" :key="idx" class="custom-tier-row">
+              <span class="tier-range">
+                {{ idx === 0 ? '0' : summarizationOptions.customTiers[idx-1].endPercent }}-{{ tier.endPercent }}%
+              </span>
+              <select
+                :value="tier.compactionRatio"
+                @change="updateCustomTier(idx, 'compactionRatio', Number($event.target.value))"
+                class="tier-select"
+              >
+                <option v-for="ratio in compactionRatios" :key="ratio" :value="ratio">{{ ratio }}:1</option>
+              </select>
+              <select
+                :value="tier.aggressiveness"
+                @change="updateCustomTier(idx, 'aggressiveness', $event.target.value)"
+                class="tier-select"
+              >
+                <option value="minimal">Minimal</option>
+                <option value="moderate">Moderate</option>
+                <option value="aggressive">Aggressive</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Model Selection (common to both modes) -->
+        <div class="summarization-options">
+          <div class="option-row">
+            <label class="option-label">
+              <span class="option-name">Model</span>
+              <select v-model="summarizationOptions.model" class="option-select">
+                <option value="opus">Opus (Best quality)</option>
+                <option value="sonnet">Sonnet (Faster)</option>
+                <option value="haiku">Haiku (Fastest)</option>
+              </select>
+              <span class="option-desc">Claude model to use</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Output Mode Selection -->
+        <div class="output-mode-section">
+          <span class="output-mode-label">Output:</span>
+          <div class="output-mode-options">
+            <label class="output-option" :class="{ active: summarizationOptions.outputMode === 'modify' }">
+              <input type="radio" value="modify" v-model="summarizationOptions.outputMode" />
+              <span class="output-option-icon">✏️</span>
+              <span class="output-option-text">Modify current</span>
+            </label>
+            <label class="output-option" :class="{ active: summarizationOptions.outputMode === 'export-jsonl' }">
+              <input type="radio" value="export-jsonl" v-model="summarizationOptions.outputMode" />
+              <span class="output-option-icon">📄</span>
+              <span class="output-option-text">Export JSONL</span>
+            </label>
+            <label class="output-option" :class="{ active: summarizationOptions.outputMode === 'export-markdown' }">
+              <input type="radio" value="export-markdown" v-model="summarizationOptions.outputMode" />
+              <span class="output-option-icon">📝</span>
+              <span class="output-option-text">Export Markdown</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="summarization-hint">
+          <span v-if="selectedMessageCount > 0">
+            Will summarize <strong>{{ selectedMessageCount }}</strong> selected messages
+          </span>
+          <span v-else-if="criteria.percentageRange === 0 || criteria.percentageRange === 100">
+            Will summarize <strong>all messages</strong> (full range)
+          </span>
+          <span v-else>
+            Will summarize first <strong>{{ criteria.percentageRange }}%</strong> of messages
+          </span>
+        </div>
+
+        <!-- Preview Results -->
+        <div v-if="summarizationPreview" class="summarization-preview">
+          <div class="preview-grid">
+            <div class="preview-stat">
+              <span class="stat-label">User/Assistant</span>
+              <span class="stat-value">{{ summarizationPreview.inputMessages }}</span>
+            </div>
+            <div class="preview-stat">
+              <span class="stat-label">Output Messages</span>
+              <span class="stat-value highlight">{{ summarizationPreview.estimatedOutputMessages }}</span>
+            </div>
+            <div class="preview-stat">
+              <span class="stat-label">Est. Token Savings</span>
+              <span class="stat-value highlight">~{{ summarizationPreview.estimatedTokenReduction?.toLocaleString() }}</span>
+            </div>
+          </div>
+
+          <!-- Non-conversation messages info -->
+          <div v-if="summarizationPreview.nonConversationMessages > 0" class="non-conversation-info">
+            <span class="cleanup-badge">Auto-cleanup</span>
+            <span>{{ summarizationPreview.nonConversationMessages }} tool calls/results/thinking blocks will also be removed</span>
+          </div>
+
+          <!-- Tiered Preview Details -->
+          <div v-if="summarizationPreview.tiered && summarizationPreview.tiers" class="tiered-preview-details">
+            <div class="tier-preview-header">Compression by tier:</div>
+            <div v-for="(tier, idx) in summarizationPreview.tiers" :key="idx" class="tier-preview-row">
+              <span class="tier-preview-range">{{ tier.range }}</span>
+              <span class="tier-preview-ratio">{{ tier.compactionRatio }}:1</span>
+              <span class="tier-preview-count">{{ tier.inputMessages }} → {{ tier.estimatedOutputMessages }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="summarizationError" class="summarization-error">
+          <div class="error-title">{{ summarizationError.error || summarizationError }}</div>
+          <div v-if="summarizationError.details" class="error-details">{{ summarizationError.details }}</div>
+          <div v-if="summarizationError.hint" class="error-hint">{{ summarizationError.hint }}</div>
+        </div>
+
+        <div class="summarization-actions">
+          <button
+            @click="previewSummarizationAction"
+            class="btn-secondary"
+            :disabled="loadingSummarization"
+          >
+            {{ loadingSummarization ? 'Loading...' : 'Preview' }}
+          </button>
+          <button
+            @click="applySummarizationAction"
+            class="btn-ai"
+            :disabled="loadingSummarization"
+          >
+            {{ loadingSummarization ? 'Summarizing...' : 'Apply AI Summarization' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div class="actions">
       <button @click="calculatePreview" class="btn-primary">
         {{ showPreview ? 'Recalculate' : 'Calculate Impact' }}
@@ -226,9 +465,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useSelectionStore } from '../stores/selection.js';
-import { findDuplicates, removeDuplicates } from '../utils/api.js';
+import { findDuplicates, removeDuplicates, checkSummarizationStatus, getSummarizationPresets, previewSummarization, applySummarization } from '../utils/api.js';
 
 const props = defineProps({
   sessionId: String,
@@ -256,6 +495,32 @@ const error = ref(null);
 // Duplicates state
 const duplicatesData = ref(null);
 const loadingDuplicates = ref(false);
+
+// Summarization state
+const summarizationAvailable = ref(false);
+const summarizationVersion = ref('');
+const summarizationPresets = ref(null);
+const compactionRatios = ref([2, 3, 4, 5, 10, 15, 20, 25, 35, 50]);
+const summarizationOptions = ref({
+  compactionRatio: 10,
+  aggressiveness: 'moderate',
+  model: 'opus',
+  // Tiered compaction options
+  useTiers: false,
+  tierPreset: 'standard',
+  customTiers: [
+    { endPercent: 25, compactionRatio: 35, aggressiveness: 'aggressive' },
+    { endPercent: 50, compactionRatio: 20, aggressiveness: 'aggressive' },
+    { endPercent: 75, compactionRatio: 10, aggressiveness: 'moderate' },
+    { endPercent: 90, compactionRatio: 5, aggressiveness: 'moderate' },
+    { endPercent: 100, compactionRatio: 3, aggressiveness: 'minimal' }
+  ],
+  // Output options
+  outputMode: 'modify'  // 'modify' | 'export-jsonl' | 'export-markdown'
+});
+const summarizationPreview = ref(null);
+const loadingSummarization = ref(false);
+const summarizationError = ref(null);
 
 const selectedMessageCount = computed(() => selectionStore.selectedMessageCount);
 const selectedFileCount = computed(() => selectionStore.selectedFileCount);
@@ -416,6 +681,157 @@ async function applyDeduplicate() {
     loadingDuplicates.value = false;
   }
 }
+
+// Summarization functions
+async function checkClaudeAvailability() {
+  try {
+    const status = await checkSummarizationStatus();
+    summarizationAvailable.value = status.available;
+    summarizationVersion.value = status.version || '';
+
+    // Also fetch presets and ratios
+    if (status.available) {
+      const presetsData = await getSummarizationPresets();
+      summarizationPresets.value = presetsData.presets;
+      if (presetsData.compactionRatios) {
+        compactionRatios.value = presetsData.compactionRatios;
+      }
+    }
+  } catch (err) {
+    summarizationAvailable.value = false;
+    console.warn('Could not check Claude CLI status:', err);
+  }
+}
+
+async function previewSummarizationAction() {
+  loadingSummarization.value = true;
+  summarizationError.value = null;
+  summarizationPreview.value = null;
+
+  try {
+    const hasSelection = selectionStore.selectedMessageCount > 0;
+    const opts = summarizationOptions.value;
+
+    const options = {
+      model: opts.model
+    };
+
+    // Add tiered or uniform options
+    if (opts.useTiers) {
+      options.useTiers = true;
+      if (opts.tierPreset !== 'custom') {
+        options.tierPreset = opts.tierPreset;
+      } else {
+        options.tiers = opts.customTiers;
+      }
+    } else {
+      options.compactionRatio = opts.compactionRatio;
+      options.aggressiveness = opts.aggressiveness;
+    }
+
+    if (hasSelection) {
+      options.messageUuids = Array.from(selectionStore.selectedMessages);
+    } else {
+      // percentageRange: 0 means "full range" (100%), use it directly or default to 100
+      options.percentageRange = criteria.value.percentageRange || 100;
+    }
+
+    const result = await previewSummarization(props.sessionId, props.projectId, options);
+    summarizationPreview.value = result;
+  } catch (err) {
+    summarizationError.value = err.message;
+  } finally {
+    loadingSummarization.value = false;
+  }
+}
+
+async function applySummarizationAction() {
+  loadingSummarization.value = true;
+  summarizationError.value = null;
+
+  try {
+    const hasSelection = selectionStore.selectedMessageCount > 0;
+    const opts = summarizationOptions.value;
+
+    const options = {
+      model: opts.model,
+      outputMode: opts.outputMode
+    };
+
+    // Add tiered or uniform options
+    if (opts.useTiers) {
+      options.useTiers = true;
+      if (opts.tierPreset !== 'custom') {
+        options.tierPreset = opts.tierPreset;
+      } else {
+        options.tiers = opts.customTiers;
+      }
+    } else {
+      options.compactionRatio = opts.compactionRatio;
+      options.aggressiveness = opts.aggressiveness;
+    }
+
+    if (hasSelection) {
+      options.messageUuids = Array.from(selectionStore.selectedMessages);
+    } else {
+      // percentageRange: 0 means "full range" (100%), use it directly or default to 100
+      options.percentageRange = criteria.value.percentageRange || 100;
+    }
+
+    const result = await applySummarization(props.sessionId, props.projectId, options);
+
+    // Check for error in response
+    if (result.error) {
+      summarizationError.value = result;
+      return;
+    }
+
+    // Handle export modes - trigger file download
+    if (result.export) {
+      downloadFile(result.export.content, result.export.filename, result.export.contentType);
+    }
+
+    // Clear state and emit (only reload if modifying original)
+    summarizationPreview.value = null;
+    selectionStore.clearAll();
+
+    if (opts.outputMode === 'modify') {
+      emit('sanitized', result);
+    }
+  } catch (err) {
+    // Try to extract detailed error from response
+    if (err.response) {
+      summarizationError.value = err.response;
+    } else {
+      summarizationError.value = { error: 'Request failed', details: err.message };
+    }
+  } finally {
+    loadingSummarization.value = false;
+  }
+}
+
+// Helper to download file
+function downloadFile(content, filename, contentType) {
+  const blob = new Blob([content], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Update a custom tier
+function updateCustomTier(index, field, value) {
+  summarizationOptions.value.customTiers[index][field] = value;
+}
+
+// Check Claude availability on mount
+onMounted(() => {
+  checkClaudeAvailability();
+});
 </script>
 
 <style scoped>
@@ -929,5 +1345,549 @@ async function applyDeduplicate() {
 
 .group-original {
   color: #718096;
+}
+
+/* AI Summarization Section */
+.summarization-section {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+  border: 1px solid #667eea;
+  border-radius: 4px;
+}
+
+.summarization-section h4 {
+  margin: 0 0 0.75rem 0;
+  color: #667eea;
+  font-size: 0.95rem;
+}
+
+.summarization-unavailable {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  border-radius: 4px;
+}
+
+.warning-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: #fc8181;
+  color: white;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+
+.warning-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.warning-text strong {
+  color: #c53030;
+}
+
+.warning-text span {
+  color: #718096;
+}
+
+.warning-text code {
+  margin-top: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: #edf2f7;
+  border-radius: 3px;
+  font-size: 0.8rem;
+  color: #4a5568;
+}
+
+.summarization-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.summarization-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.status-available {
+  padding: 0.25rem 0.5rem;
+  background: #c6f6d5;
+  color: #276749;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.status-version {
+  color: #718096;
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+.summarization-options {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.option-row {
+  display: flex;
+}
+
+.option-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  padding: 0.5rem;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.option-label:hover {
+  border-color: #667eea;
+}
+
+.option-name {
+  font-weight: 500;
+  color: #4a5568;
+  min-width: 120px;
+  font-size: 0.85rem;
+}
+
+.option-select {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  background: white;
+  cursor: pointer;
+}
+
+.option-select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.option-desc {
+  font-size: 0.75rem;
+  color: #a0aec0;
+  margin-left: auto;
+}
+
+.summarization-hint {
+  padding: 0.5rem;
+  background: white;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #4a5568;
+}
+
+.summarization-hint strong {
+  color: #667eea;
+}
+
+.summarization-preview {
+  padding: 0.75rem;
+  background: white;
+  border: 1px solid #c6f6d5;
+  border-radius: 4px;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+
+.preview-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem;
+  background: #f7fafc;
+  border-radius: 4px;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: #718096;
+  margin-bottom: 0.25rem;
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #4a5568;
+}
+
+.stat-value.highlight {
+  color: #38a169;
+}
+
+.summarization-error {
+  padding: 0.75rem;
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.summarization-error .error-title {
+  color: #c53030;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.summarization-error .error-details {
+  color: #742a2a;
+  font-family: monospace;
+  font-size: 0.8rem;
+  padding: 0.5rem;
+  background: #fed7d7;
+  border-radius: 3px;
+  margin-top: 0.5rem;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.summarization-error .error-hint {
+  color: #744210;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  background: #fefcbf;
+  border-radius: 3px;
+  border-left: 3px solid #ecc94b;
+}
+
+.summarization-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-ai {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-ai:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-ai:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Compaction Mode Toggle */
+.compaction-mode-toggle {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.toggle-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #4a5568;
+  transition: all 0.2s ease;
+}
+
+.toggle-option input {
+  display: none;
+}
+
+.toggle-option:hover {
+  background: #f7fafc;
+}
+
+.toggle-option.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+/* Tiered Options */
+.tiered-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.tier-preset-row {
+  display: flex;
+}
+
+.preset-description {
+  padding: 0.5rem;
+  background: #f7fafc;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #718096;
+  font-style: italic;
+}
+
+/* Tier Visualization */
+.tier-visualization {
+  display: flex;
+  height: 32px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
+.tier-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  transition: all 0.2s ease;
+}
+
+.tier-bar.tier-aggressive {
+  background: linear-gradient(135deg, #fc8181 0%, #f56565 100%);
+  color: white;
+}
+
+.tier-bar.tier-moderate {
+  background: linear-gradient(135deg, #f6e05e 0%, #ecc94b 100%);
+  color: #744210;
+}
+
+.tier-bar.tier-minimal {
+  background: linear-gradient(135deg, #68d391 0%, #48bb78 100%);
+  color: white;
+}
+
+.tier-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.tier-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: #a0aec0;
+  padding: 0.25rem 0;
+}
+
+/* Custom Tiers Editor */
+.custom-tiers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.75rem;
+  background: #f7fafc;
+  border-radius: 4px;
+}
+
+.custom-tiers-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #718096;
+  text-transform: uppercase;
+}
+
+.header-range {
+  min-width: 70px;
+}
+
+.header-ratio {
+  min-width: 70px;
+}
+
+.header-level {
+  flex: 1;
+}
+
+.custom-tier-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tier-range {
+  min-width: 70px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #4a5568;
+}
+
+.tier-select {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 3px;
+  font-size: 0.8rem;
+  background: white;
+  cursor: pointer;
+}
+
+.tier-select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+/* Tiered Preview Details */
+.tiered-preview-details {
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  background: #f7fafc;
+  border-radius: 4px;
+}
+
+.tier-preview-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #4a5568;
+  margin-bottom: 0.5rem;
+}
+
+.tier-preview-row {
+  display: flex;
+  gap: 1rem;
+  padding: 0.25rem 0;
+  font-size: 0.8rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.tier-preview-row:last-child {
+  border-bottom: none;
+}
+
+.tier-preview-range {
+  min-width: 60px;
+  color: #718096;
+}
+
+.tier-preview-ratio {
+  min-width: 40px;
+  font-weight: 500;
+  color: #667eea;
+}
+
+.tier-preview-count {
+  color: #38a169;
+}
+
+/* Non-conversation cleanup info */
+.non-conversation-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #92400e;
+}
+
+.cleanup-badge {
+  padding: 0.125rem 0.375rem;
+  background: #f59e0b;
+  color: white;
+  border-radius: 3px;
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+/* Output Mode Selection */
+.output-mode-section {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  background: #f7fafc;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.output-mode-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #4a5568;
+}
+
+.output-mode-options {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.output-option {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.2s ease;
+}
+
+.output-option input {
+  display: none;
+}
+
+.output-option:hover {
+  border-color: #667eea;
+}
+
+.output-option.active {
+  background: #667eea;
+  border-color: #667eea;
+  color: white;
+}
+
+.output-option-icon {
+  font-size: 0.9rem;
+}
+
+.output-option-text {
+  font-weight: 500;
 }
 </style>

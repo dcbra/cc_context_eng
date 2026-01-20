@@ -9,6 +9,7 @@ import sessionRoutes from './routes/sessions.js';
 import sanitizeRoutes from './routes/sanitize.js';
 import backupRoutes from './routes/backup.js';
 import exportRoutes from './routes/export.js';
+import summarizeRoutes from './routes/summarize.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +33,7 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/sanitize', sanitizeRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/export', exportRoutes);
+app.use('/api/summarize', summarizeRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
