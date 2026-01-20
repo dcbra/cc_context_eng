@@ -151,6 +151,10 @@ router.post('/:sessionId/preview', async (req, res, next) => {
       }
     }
 
+    // Track content modifications (not removals)
+    let verboseTruncated = 0;
+    let errorsCleaned = 0;
+
     // Count messages affected by criteria (message types, percentage range)
     if (criteria) {
       // Determine the scope: manual selection or percentage range
@@ -195,18 +199,34 @@ router.post('/:sessionId/preview', async (req, res, next) => {
         criteria.removeDuplicateFileReads;
 
       if (hasCriteria) {
-        // Apply message type filter if specified
+        // Apply message type filter if specified (these REMOVE messages)
         if (criteria.messageTypes && criteria.messageTypes.length > 0) {
           const typesSet = new Set(criteria.messageTypes);
-          affectedMessages = affectedMessages.filter(msg => matchesMessageType(msg, typesSet));
+          const filtered = affectedMessages.filter(msg => matchesMessageType(msg, typesSet));
+          removedMessages = filtered.length;
+          removedTokens = filtered.reduce((sum, m) => sum + m.tokens.total, 0);
         }
 
-        // TODO: Add other criteria filters here (removeErrors, removeVerbose, etc.)
+        // Count verbose messages that would be truncated (not removed)
+        if (criteria.removeVerbose) {
+          const threshold = criteria.verboseThreshold || 500;
+          verboseTruncated = affectedMessages.filter(msg => {
+            if (msg.type !== 'assistant') return false;
+            const content = Array.isArray(msg.content) ? msg.content : [];
+            return content.some(block =>
+              block.type === 'text' && block.text && block.text.length > threshold
+            );
+          }).length;
+        }
 
-        removedMessages = affectedMessages.length;
-        removedTokens = affectedMessages.reduce((sum, m) => sum + m.tokens.total, 0);
+        // Count messages with errors that would be cleaned
+        if (criteria.removeErrors) {
+          errorsCleaned = affectedMessages.filter(msg => {
+            const content = Array.isArray(msg.content) ? msg.content : [];
+            return content.some(block => block.type === 'tool_result' && block.is_error);
+          }).length;
+        }
       }
-      // If no criteria set, removedMessages stays at 0
     }
 
     // Calculate final values
@@ -229,6 +249,11 @@ router.post('/:sessionId/preview', async (req, res, next) => {
         messages: removedMessages,
         tokens: freedTokens,
         percentage: freedPercentage
+      },
+      // Content modifications (not removals)
+      modified: {
+        verboseTruncated,
+        errorsCleaned
       }
     });
   } catch (error) {

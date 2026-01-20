@@ -151,6 +151,16 @@
             <span class="savings-percent">{{ previewData.freed.percentage.toFixed(0) }}% reduction</span>
           </div>
         </template>
+        <template v-else-if="previewData.modified && (previewData.modified.verboseTruncated > 0 || previewData.modified.errorsCleaned > 0)">
+          <div class="impact-modifications">
+            <span v-if="previewData.modified.verboseTruncated > 0" class="modification-badge verbose">
+              {{ previewData.modified.verboseTruncated }} verbose truncated
+            </span>
+            <span v-if="previewData.modified.errorsCleaned > 0" class="modification-badge errors">
+              {{ previewData.modified.errorsCleaned }} errors cleaned
+            </span>
+          </div>
+        </template>
         <div v-else class="no-matches">
           <span class="no-matches-icon">ℹ️</span>
           <span class="no-matches-text">No messages match the criteria in the selected range</span>
@@ -164,7 +174,7 @@
         <button
           @click="applySanitization"
           class="btn-apply-action"
-          :disabled="!canApply || (showPreview && previewData && previewData.freed.messages === 0)"
+          :disabled="!canApply || (showPreview && previewData && previewHasNoImpact)"
         >
           ✓ Apply
         </button>
@@ -539,6 +549,14 @@ const canApply = computed(() => {
   // Require actual sanitization criteria OR files selected
   // Message selection alone is NOT enough (use Delete in Messages tab for that)
   return appliedCriteria.value > 0 || selectedFileCount.value > 0;
+});
+
+const previewHasNoImpact = computed(() => {
+  if (!previewData.value) return true;
+  const hasRemovals = previewData.value.freed?.messages > 0;
+  const hasModifications = previewData.value.modified &&
+    (previewData.value.modified.verboseTruncated > 0 || previewData.value.modified.errorsCleaned > 0);
+  return !hasRemovals && !hasModifications;
 });
 
 async function calculatePreview() {
@@ -1247,6 +1265,29 @@ onMounted(() => {
   font-size: 0.8rem;
   color: #92400e;
   font-weight: 500;
+}
+
+.impact-modifications {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.modification-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.modification-badge.verbose {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.modification-badge.errors {
+  background: #fce7f3;
+  color: #9d174d;
 }
 
 .sanitization-buttons {
