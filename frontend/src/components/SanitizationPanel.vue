@@ -2,9 +2,6 @@
   <div class="sanitization-panel">
     <div class="panel-header">
       <h3>Sanitization Options</h3>
-      <button @click="showPreview = !showPreview" class="btn-preview">
-        {{ showPreview ? 'Hide Preview' : 'Show Preview' }}
-      </button>
     </div>
 
     <div v-if="hasManualSelections" class="info-banner">
@@ -125,47 +122,34 @@
       </div>
     </div>
 
-    <div class="summary-section">
-      <h4>Summary</h4>
-      <div class="summary-grid">
-        <div class="summary-item">
-          <span class="label">Messages to Remove:</span>
-          <span class="value">{{ selectedMessageCount }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="label">Files to Sanitize:</span>
-          <span class="value">{{ selectedFileCount }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="label">Criteria Applied:</span>
-          <span class="value">{{ appliedCriteria }}</span>
-        </div>
+    <!-- Sanitization Summary & Actions -->
+    <div class="sanitization-actions-section">
+      <div class="summary-inline">
+        <span class="summary-stat">
+          <strong>{{ selectedMessageCount }}</strong> messages
+        </span>
+        <span class="summary-stat">
+          <strong>{{ selectedFileCount }}</strong> files
+        </span>
+        <span class="summary-stat">
+          <strong>{{ appliedCriteria }}</strong> criteria
+        </span>
       </div>
-    </div>
-
-    <div v-if="showPreview && previewData" class="preview-section">
-      <h4>Preview</h4>
-      <div class="preview-content">
-        <div class="preview-item">
-          <span class="label">Original Messages:</span>
-          <span class="value">{{ previewData.original.messages }}</span>
-        </div>
-        <div class="preview-item">
-          <span class="label">Original Tokens:</span>
-          <span class="value">{{ previewData.original.tokens }}</span>
-        </div>
-        <div class="preview-item">
-          <span class="label">Resulting Messages:</span>
-          <span class="value success">{{ previewData.sanitized.messages }}</span>
-        </div>
-        <div class="preview-item">
-          <span class="label">Resulting Tokens:</span>
-          <span class="value success">{{ previewData.sanitized.tokens }}</span>
-        </div>
-        <div class="preview-item freed">
-          <span class="label">Tokens Freed:</span>
-          <span class="value">{{ previewData.freed.tokens }} ({{ previewData.freed.percentage.toFixed(1) }}%)</span>
-        </div>
+      <div v-if="showPreview && previewData" class="preview-inline">
+        <span class="preview-stat">
+          {{ previewData.original.messages }} → <strong class="success">{{ previewData.sanitized.messages }}</strong> messages
+        </span>
+        <span v-if="previewData.freed.messages > 0" class="preview-reduction">
+          (-{{ previewData.freed.messages }} messages, {{ previewData.freed.percentage.toFixed(0) }}%)
+        </span>
+      </div>
+      <div class="sanitization-buttons">
+        <button @click="calculatePreview" class="btn-secondary-sm">
+          {{ showPreview ? 'Refresh' : 'Preview' }}
+        </button>
+        <button @click="applySanitization" class="btn-danger-sm" :disabled="!canApply">
+          Apply Sanitization
+        </button>
       </div>
     </div>
 
@@ -448,15 +432,6 @@
           </button>
         </div>
       </div>
-    </div>
-
-    <div class="actions">
-      <button @click="calculatePreview" class="btn-primary">
-        {{ showPreview ? 'Recalculate' : 'Calculate Impact' }}
-      </button>
-      <button @click="applySanitization" class="btn-danger" :disabled="!canApply">
-        Apply Sanitization
-      </button>
     </div>
 
     <div v-if="loading" class="loading">Calculating...</div>
@@ -856,28 +831,11 @@ onMounted(() => {
   color: #333;
 }
 
-.btn-preview {
-  padding: 0.5rem 1rem;
-  background: #f0f0f0;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9rem;
-}
-
-.btn-preview:hover {
-  background: #e0e0e0;
-}
-
-.criteria-section,
-.summary-section,
-.preview-section {
+.criteria-section {
   margin-bottom: 1.5rem;
 }
 
-.criteria-section h4,
-.summary-section h4,
-.preview-section h4 {
+.criteria-section h4 {
   margin: 0 0 1rem 0;
   color: #333;
   font-size: 0.95rem;
@@ -921,93 +879,6 @@ onMounted(() => {
   font-size: 0.85rem;
   color: #999;
   margin-top: 0.25rem;
-}
-
-.summary-grid,
-.preview-content {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-}
-
-.summary-item,
-.preview-item {
-  padding: 1rem;
-  background-color: #f9f9f9;
-  border: 1px solid #e0e0e0;
-  border-radius: 4px;
-  display: flex;
-  flex-direction: column;
-}
-
-.summary-item .label,
-.preview-item .label {
-  font-size: 0.85rem;
-  color: #999;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-}
-
-.summary-item .value,
-.preview-item .value {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #333;
-}
-
-.preview-item .value.success {
-  color: #2e7d32;
-}
-
-.preview-item.freed {
-  background-color: #e8f5e9;
-  border-color: #4caf50;
-}
-
-.preview-item.freed .value {
-  color: #2e7d32;
-}
-
-.actions {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.btn-primary,
-.btn-danger {
-  flex: 1;
-  padding: 0.75rem 1.5rem;
-  border: none;
-  border-radius: 4px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.btn-primary {
-  background: #667eea;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: #764ba2;
-}
-
-.btn-danger {
-  background: #d32f2f;
-  color: white;
-}
-
-.btn-danger:hover:not(:disabled) {
-  background: #b71c1c;
-}
-
-.btn-danger:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-  opacity: 0.6;
 }
 
 .loading,
@@ -1208,6 +1079,91 @@ onMounted(() => {
 .full-range-label {
   font-weight: 600;
   color: #667eea;
+}
+
+/* Sanitization Actions Section */
+.sanitization-actions-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: #f0f4ff;
+  border: 1px solid #667eea;
+  border-radius: 4px;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.summary-inline {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: #4a5568;
+}
+
+.summary-stat strong {
+  color: #667eea;
+}
+
+.preview-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #4a5568;
+}
+
+.preview-stat .success {
+  color: #38a169;
+}
+
+.preview-reduction {
+  color: #38a169;
+  font-weight: 500;
+}
+
+.sanitization-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-secondary-sm {
+  padding: 0.4rem 0.75rem;
+  background: #e2e8f0;
+  color: #4a5568;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary-sm:hover {
+  background: #cbd5e0;
+}
+
+.btn-danger-sm {
+  padding: 0.4rem 0.75rem;
+  background: #d32f2f;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-danger-sm:hover:not(:disabled) {
+  background: #b71c1c;
+}
+
+.btn-danger-sm:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 /* Duplicates Section */

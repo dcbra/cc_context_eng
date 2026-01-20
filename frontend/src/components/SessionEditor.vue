@@ -16,9 +16,6 @@
         <button @click="activeTab = 'sanitize'" :class="{ active: activeTab === 'sanitize' }" class="tab-btn">
           Sanitize
         </button>
-        <button @click="activeTab = 'tokens'" :class="{ active: activeTab === 'tokens' }" class="tab-btn">
-          Tokens
-        </button>
         <button @click="activeTab = 'backups'" :class="{ active: activeTab === 'backups' }" class="tab-btn">
           Backups
         </button>
@@ -159,15 +156,6 @@
         />
       </div>
 
-      <!-- Tokens Tab -->
-      <div v-if="activeTab === 'tokens'" class="tab-content">
-        <TokenCalculator
-          :tokens="sessionData.tokens"
-          :subagents="sessionData.subagents"
-          :sessionData="sessionData"
-        />
-      </div>
-
       <!-- Backups Tab -->
       <div v-if="activeTab === 'backups'" class="tab-content">
         <BackupManager
@@ -201,7 +189,6 @@ import { useSelectionStore } from '../stores/selection.js';
 import { getSession } from '../utils/api.js';
 import FileTracker from './FileTracker.vue';
 import SanitizationPanel from './SanitizationPanel.vue';
-import TokenCalculator from './TokenCalculator.vue';
 import BackupManager from './BackupManager.vue';
 import ExportPanel from './ExportPanel.vue';
 
