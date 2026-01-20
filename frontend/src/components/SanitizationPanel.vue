@@ -526,16 +526,14 @@ const appliedCriteria = computed(() => {
   if (criteria.value.messageTypes && criteria.value.messageTypes.length > 0) {
     count += criteria.value.messageTypes.length;
   }
-  if (criteria.value.percentageRange > 0) count++;
+  // Note: percentageRange is a scope/filter, not a criteria itself
   return count;
 });
 
 const canApply = computed(() => {
-  return (
-    selectedMessageCount.value > 0 ||
-    selectedFileCount.value > 0 ||
-    appliedCriteria.value > 0
-  );
+  // Require actual sanitization criteria OR files selected
+  // Message selection alone is NOT enough (use Delete in Messages tab for that)
+  return appliedCriteria.value > 0 || selectedFileCount.value > 0;
 });
 
 async function calculatePreview() {
@@ -548,13 +546,13 @@ async function calculatePreview() {
     const hasSelection = selectionStore.selectedMessageCount > 0;
 
     const requestBody = {
-      removeMessages: (hasSelection && !hasMessageTypeCriteria)
-        ? Array.from(selectionStore.selectedMessages)
-        : [],
+      // Never use selection as direct deletion - selection only acts as scope for criteria
+      removeMessages: [],
       removeFiles: Array.from(selectionStore.selectedFiles),
       criteria: {
         ...criteria.value,
-        manuallySelected: (hasSelection && hasMessageTypeCriteria)
+        // Manual selection defines the scope for applying criteria
+        manuallySelected: hasSelection
           ? Array.from(selectionStore.selectedMessages)
           : undefined
       }
@@ -595,16 +593,14 @@ async function applySanitization() {
     const hasSelection = selectionStore.selectedMessageCount > 0;
 
     const requestBody = {
-      // Only send removeMessages for direct deletion (no message type filter)
-      // When using message type filter with selection, the selection is the RANGE, not deletion targets
-      removeMessages: (hasSelection && !hasMessageTypeCriteria)
-        ? Array.from(selectionStore.selectedMessages)
-        : [],
+      // Never use selection as direct deletion - that's what the Messages tab Delete button is for
+      // Selection here only acts as a range/scope filter for criteria
+      removeMessages: [],
       removeFiles: Array.from(selectionStore.selectedFiles),
       criteria: {
         ...criteria.value,
-        // Add manual selection as range filter when using message type criteria
-        manuallySelected: (hasSelection && hasMessageTypeCriteria)
+        // Manual selection defines the scope for applying criteria
+        manuallySelected: hasSelection
           ? Array.from(selectionStore.selectedMessages)
           : undefined
       }

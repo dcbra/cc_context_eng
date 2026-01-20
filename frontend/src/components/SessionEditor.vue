@@ -61,7 +61,7 @@
               :key="message.uuid"
               class="message-card"
               :class="{
-                selected: selectionStore.selectedMessages.has(message.uuid),
+                selected: isMessageSelected(message.uuid),
                 expanded: expandedMessageId === message.uuid,
                 'is-user-input': getMessageSource(message) === 'user',
                 'is-system': getMessageSource(message) === 'system' || getMessageSource(message) === 'agent',
@@ -71,7 +71,7 @@
               <div class="message-checkbox">
                 <input
                   type="checkbox"
-                  :checked="selectionStore.selectedMessages.has(message.uuid)"
+                  :checked="isMessageSelected(message.uuid)"
                   @click="handleMessageSelection($event, message.uuid, index)"
                 />
               </div>
@@ -215,6 +215,13 @@ const sortByTimestamp = ref(true);
 // Check if a message is a duplicate
 function isDuplicate(uuid) {
   return !!duplicateUuidsMap.value[uuid];
+}
+
+// Check if a message is selected - forces reactivity by accessing the Set
+function isMessageSelected(uuid) {
+  // Access size to create reactive dependency on the entire Set
+  const _ = selectionStore.selectedMessages.size;
+  return selectionStore.selectedMessages.has(uuid);
 }
 
 const selectedCount = computed(() => selectionStore.selectedMessageCount);
