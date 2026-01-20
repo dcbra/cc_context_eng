@@ -210,6 +210,24 @@ When you remove a file:
 3. You can choose to keep first/last read only
 4. Duplicates can be auto-removed
 
+### Message Range & Selection
+
+The **Message Range slider** (0-100%) determines which messages are affected by operations. Messages are ordered chronologically, so:
+- **0% or 100%** = Full range (all messages)
+- **50%** = First half of messages (older messages)
+- **25%** = First quarter (oldest messages)
+
+**How each feature uses the range:**
+
+| Feature | Range Behavior |
+|---------|----------------|
+| **Sanitization** | Criteria (remove errors, verbose, message types) apply only to messages within the selected range. Messages outside the range are untouched. |
+| **AI Summarization** | Summarizes messages within the selected range. Useful for compressing old context while keeping recent messages intact. |
+| **Duplicate Detection** | **Independent** - Scans ALL messages regardless of range. Duplicates are detected globally. |
+
+**Manual Selection Override:**
+If you manually select messages in the Messages tab, those selections take precedence over the percentage range for sanitization and summarization.
+
 ### Subagent Tracking
 - Subagents are identified by `isSidechain: true` and unique agentId
 - Token usage is tracked separately per subagent
