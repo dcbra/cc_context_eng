@@ -124,31 +124,42 @@
 
     <!-- Sanitization Summary & Actions -->
     <div class="sanitization-actions-section">
-      <div class="summary-inline">
-        <span class="summary-stat">
-          <strong>{{ selectedMessageCount }}</strong> messages
-        </span>
-        <span class="summary-stat">
-          <strong>{{ selectedFileCount }}</strong> files
-        </span>
-        <span class="summary-stat">
-          <strong>{{ appliedCriteria }}</strong> criteria
-        </span>
+      <div class="selection-summary">
+        <div class="selection-label">Selected:</div>
+        <div class="selection-badges">
+          <span class="selection-badge" :class="{ active: selectedMessageCount > 0 }">
+            <span class="badge-value">{{ selectedMessageCount }}</span>
+            <span class="badge-label">messages</span>
+          </span>
+          <span class="selection-badge" :class="{ active: selectedFileCount > 0 }">
+            <span class="badge-value">{{ selectedFileCount }}</span>
+            <span class="badge-label">files</span>
+          </span>
+          <span class="selection-badge" :class="{ active: appliedCriteria > 0 }">
+            <span class="badge-value">{{ appliedCriteria }}</span>
+            <span class="badge-label">criteria</span>
+          </span>
+        </div>
       </div>
-      <div v-if="showPreview && previewData" class="preview-inline">
-        <span class="preview-stat">
-          {{ previewData.original.messages }} → <strong class="success">{{ previewData.sanitized.messages }}</strong> messages
-        </span>
-        <span v-if="previewData.freed.messages > 0" class="preview-reduction">
-          (-{{ previewData.freed.messages }} messages, {{ previewData.freed.percentage.toFixed(0) }}%)
-        </span>
+
+      <div v-if="showPreview && previewData" class="impact-preview">
+        <div class="impact-arrow">
+          <span class="impact-from">{{ previewData.original.messages }}</span>
+          <span class="impact-icon">→</span>
+          <span class="impact-to">{{ previewData.sanitized.messages }}</span>
+        </div>
+        <div v-if="previewData.freed.messages > 0" class="impact-savings">
+          <span class="savings-badge">-{{ previewData.freed.messages }}</span>
+          <span class="savings-percent">{{ previewData.freed.percentage.toFixed(0) }}% reduction</span>
+        </div>
       </div>
+
       <div class="sanitization-buttons">
-        <button @click="calculatePreview" class="btn-secondary-sm">
-          {{ showPreview ? 'Refresh' : 'Preview' }}
+        <button @click="calculatePreview" class="btn-preview-action">
+          {{ showPreview ? '↻ Refresh' : '👁 Preview' }}
         </button>
-        <button @click="applySanitization" class="btn-danger-sm" :disabled="!canApply">
-          Apply Sanitization
+        <button @click="applySanitization" class="btn-apply-action" :disabled="!canApply">
+          ✓ Apply
         </button>
       </div>
     </div>
@@ -1086,40 +1097,123 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
-  background: #f0f4ff;
-  border: 1px solid #667eea;
-  border-radius: 4px;
+  gap: 1.5rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
   margin-bottom: 1.5rem;
   flex-wrap: wrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
-.summary-inline {
+.selection-summary {
   display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.selection-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.selection-badges {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.selection-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.375rem 0.75rem;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  min-width: 60px;
+  transition: all 0.2s ease;
+}
+
+.selection-badge.active {
+  background: #667eea;
+  border-color: #667eea;
+}
+
+.selection-badge.active .badge-value,
+.selection-badge.active .badge-label {
+  color: white;
+}
+
+.badge-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #334155;
+  line-height: 1;
+}
+
+.badge-label {
+  font-size: 0.65rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-top: 2px;
+}
+
+.impact-preview {
+  display: flex;
+  align-items: center;
   gap: 1rem;
-  font-size: 0.85rem;
-  color: #4a5568;
+  padding: 0.5rem 1rem;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
 }
 
-.summary-stat strong {
-  color: #667eea;
-}
-
-.preview-inline {
+.impact-arrow {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.impact-from {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.impact-icon {
+  font-size: 1rem;
+  color: #94a3b8;
+}
+
+.impact-to {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #059669;
+}
+
+.impact-savings {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.savings-badge {
+  padding: 0.25rem 0.5rem;
+  background: #dcfce7;
+  color: #166534;
+  border-radius: 4px;
   font-size: 0.85rem;
-  color: #4a5568;
+  font-weight: 700;
 }
 
-.preview-stat .success {
-  color: #38a169;
-}
-
-.preview-reduction {
-  color: #38a169;
+.savings-percent {
+  font-size: 0.8rem;
+  color: #059669;
   font-weight: 500;
 }
 
@@ -1128,42 +1222,47 @@ onMounted(() => {
   gap: 0.5rem;
 }
 
-.btn-secondary-sm {
-  padding: 0.4rem 0.75rem;
-  background: #e2e8f0;
-  color: #4a5568;
-  border: 1px solid #cbd5e0;
-  border-radius: 4px;
+.btn-preview-action {
+  padding: 0.5rem 1rem;
+  background: white;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 500;
   transition: all 0.2s ease;
 }
 
-.btn-secondary-sm:hover {
-  background: #cbd5e0;
+.btn-preview-action:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
 }
 
-.btn-danger-sm {
-  padding: 0.4rem 0.75rem;
-  background: #d32f2f;
+.btn-apply-action {
+  padding: 0.5rem 1.25rem;
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 500;
+  font-size: 0.85rem;
+  font-weight: 600;
   transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(185, 28, 28, 0.2);
 }
 
-.btn-danger-sm:hover:not(:disabled) {
-  background: #b71c1c;
+.btn-apply-action:hover:not(:disabled) {
+  background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(185, 28, 28, 0.3);
 }
 
-.btn-danger-sm:disabled {
-  background: #ccc;
+.btn-apply-action:disabled {
+  background: #cbd5e1;
   cursor: not-allowed;
-  opacity: 0.6;
+  box-shadow: none;
+  transform: none;
 }
 
 /* Duplicates Section */
