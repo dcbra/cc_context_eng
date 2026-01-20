@@ -71,6 +71,7 @@
               <div class="message-checkbox">
                 <input
                   type="checkbox"
+                  :key="`chk-${message.uuid}-${selectionStore.selectedMessages.size}`"
                   :checked="isMessageSelected(message.uuid)"
                   @click="handleMessageSelection($event, message.uuid, index)"
                 />
