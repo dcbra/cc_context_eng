@@ -337,6 +337,19 @@ Currently uses character count (1 token ≈ 4 chars). To integrate actual tokeni
 2. Update `token-calculator.js` `estimateTokensByCharCount()`
 3. Add tokenizer call for non-assistant messages
 
+## Important Notes
+
+### Claude Code Context Limits (v2.1.12+)
+
+Starting with Claude Code v2.1.12, once the `/compact` prompt appears, the session becomes locked - you cannot continue without running `/compact`, even if you sanitize the conversation file and free up context space.
+
+**Workarounds:**
+1. **Sanitize proactively** - Monitor your context usage and sanitize *before* hitting the limit
+2. **Export and restart** - Export to Markdown (or AI-summarized Markdown), start a new session, and paste the summary as context
+3. **Use AI summarization early** - Compress old conversation sections before reaching limits
+
+This tool helps you manage context more effectively, but be aware that once Claude Code triggers its compaction prompt, external sanitization won't bypass it.
+
 ## Limitations & Future Improvements
 
 ### Current
