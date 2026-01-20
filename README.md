@@ -226,7 +226,9 @@ The **Message Range slider** (0-100%) determines which messages are affected by 
 | **Duplicate Detection** | **Independent** - Scans ALL messages regardless of range. Duplicates are detected globally. |
 
 **Manual Selection Override:**
-If you manually select messages in the Messages tab, those selections take precedence over the percentage range for sanitization and summarization.
+If you manually select messages in the Messages tab, those exact messages are used and the percentage range slider is ignored. It's either/or:
+- **With manual selection**: Operations apply to exactly the messages you selected
+- **Without manual selection**: Operations apply to messages within the percentage range
 
 ### Subagent Tracking
 - Subagents are identified by `isSidechain: true` and unique agentId
