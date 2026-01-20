@@ -145,14 +145,20 @@
       </div>
 
       <div v-if="showPreview && previewData" class="impact-preview">
-        <div class="impact-arrow">
-          <span class="impact-from">{{ previewData.original.messages }}</span>
-          <span class="impact-icon">→</span>
-          <span class="impact-to">{{ previewData.sanitized.messages }}</span>
-        </div>
-        <div v-if="previewData.freed.messages > 0" class="impact-savings">
-          <span class="savings-badge">-{{ previewData.freed.messages }}</span>
-          <span class="savings-percent">{{ previewData.freed.percentage.toFixed(0) }}% reduction</span>
+        <template v-if="previewData.freed.messages > 0">
+          <div class="impact-arrow">
+            <span class="impact-from">{{ previewData.original.messages }}</span>
+            <span class="impact-icon">→</span>
+            <span class="impact-to">{{ previewData.sanitized.messages }}</span>
+          </div>
+          <div class="impact-savings">
+            <span class="savings-badge">-{{ previewData.freed.messages }}</span>
+            <span class="savings-percent">{{ previewData.freed.percentage.toFixed(0) }}% reduction</span>
+          </div>
+        </template>
+        <div v-else class="no-matches">
+          <span class="no-matches-icon">ℹ️</span>
+          <span class="no-matches-text">No messages match the criteria in the selected range</span>
         </div>
       </div>
 
@@ -160,7 +166,11 @@
         <button @click="calculatePreview" class="btn-preview-action">
           {{ showPreview ? '↻ Refresh' : '👁 Preview' }}
         </button>
-        <button @click="applySanitization" class="btn-apply-action" :disabled="!canApply">
+        <button
+          @click="applySanitization"
+          class="btn-apply-action"
+          :disabled="!canApply || (showPreview && previewData && previewData.freed.messages === 0)"
+        >
           ✓ Apply
         </button>
       </div>
@@ -1221,6 +1231,26 @@ onMounted(() => {
 .savings-percent {
   font-size: 0.8rem;
   color: #059669;
+  font-weight: 500;
+}
+
+.no-matches {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+}
+
+.no-matches-icon {
+  font-size: 1rem;
+}
+
+.no-matches-text {
+  font-size: 0.8rem;
+  color: #92400e;
   font-weight: 500;
 }
 
