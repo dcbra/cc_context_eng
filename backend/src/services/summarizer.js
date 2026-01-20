@@ -201,17 +201,23 @@ async function callClaude(prompt, options = {}) {
           return;
         }
 
-        // Remove markdown code blocks if present
+        // Extract JSON array from response - Claude sometimes adds explanatory text
         resultText = resultText.trim();
-        if (resultText.startsWith('```json')) {
-          resultText = resultText.slice(7);
-        } else if (resultText.startsWith('```')) {
-          resultText = resultText.slice(3);
+
+        // Try to find JSON array in markdown code block first
+        const jsonBlockMatch = resultText.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (jsonBlockMatch) {
+          resultText = jsonBlockMatch[1].trim();
         }
-        if (resultText.endsWith('```')) {
-          resultText = resultText.slice(0, -3);
+
+        // If still not valid JSON, try to find the array directly
+        if (!resultText.startsWith('[')) {
+          const arrayStart = resultText.indexOf('[');
+          const arrayEnd = resultText.lastIndexOf(']');
+          if (arrayStart !== -1 && arrayEnd !== -1 && arrayEnd > arrayStart) {
+            resultText = resultText.slice(arrayStart, arrayEnd + 1);
+          }
         }
-        resultText = resultText.trim();
 
         // Parse the JSON array
         const summaries = JSON.parse(resultText);
