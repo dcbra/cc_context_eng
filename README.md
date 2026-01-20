@@ -19,6 +19,17 @@ A web application for managing, analyzing, and sanitizing Claude Code context fi
   - Remove duplicate file reads
 - **Impact Preview**: See token savings before applying changes
 
+### 🤖 AI-Powered Summarization
+- **Conversation Compression**: Use Claude CLI to intelligently summarize conversation ranges
+- **Tiered Compaction**: Apply different compression ratios to different parts of the conversation
+  - Aggressive compression (35-50x) for old messages
+  - Moderate compression (5-20x) for middle sections
+  - Minimal compression (2-3x) for recent context
+- **Uniform Mode**: Apply single compression ratio across selected range
+- **Configurable Ratios**: Choose from 2x to 50x compression
+- **Smart Chunking**: Automatically chunks large conversations to avoid timeouts
+- **Export Options**: Modify in place, export as JSONL, or export as Markdown
+
 ### 💾 Backup & Restore
 - **Automatic Versioning**: Keep last 10 versions of your sanitized sessions
 - **Version Comparison**: Compare before/after metrics
@@ -47,12 +58,14 @@ A web application for managing, analyzing, and sanitizing Claude Code context fi
 - `sanitizer.js` - Apply sanitization rules while preserving integrity
 - `backup-manager.js` - Version control with rotation and restore
 - `markdown-export.js` - Convert sessions to readable formats
+- `summarizer.js` - AI-powered conversation summarization via Claude CLI
 
 **API Routes:**
 - `/api/projects` - List projects and sessions
 - `/api/sessions/:id` - Get parsed session with full analysis
 - `/api/sanitize/:id` - Apply sanitization rules
 - `/api/backup/:id/*` - Manage backups and restore
+- `/api/summarize/:id/*` - AI-powered conversation summarization
 
 ### Frontend (Vue 3 + Pinia)
 
@@ -165,6 +178,21 @@ npm run frontend:build
   - Verify backup integrity
   - Delete old versions
 
+### 7. AI Summarization
+- **Sanitize Tab** has an AI Summarization section
+- **Select Range**: Use slider to choose what percentage of messages to summarize (0-100%)
+- **Choose Mode**:
+  - **Uniform**: Single compression ratio across all selected messages
+  - **Tiered**: Different ratios for different age ranges (recommended)
+- **Configure Tiers** (for tiered mode):
+  - Select from presets (Conservative, Moderate, Aggressive)
+  - Or customize each tier's compression ratio
+- **Select Output**:
+  - **Modify Current**: Updates the session file in place
+  - **Export JSONL**: Creates new summarized JSONL file
+  - **Export Markdown**: Creates readable markdown transcript
+- **Requirements**: Claude CLI must be installed and authenticated
+
 ## Key Concepts
 
 ### Message Threading
@@ -200,8 +228,8 @@ When you remove a file:
 cc_context_eng/
 ├── backend/
 │   ├── src/
-│   │   ├── services/    # Business logic
-│   │   ├── routes/      # API endpoints
+│   │   ├── services/    # Business logic (including summarizer.js)
+│   │   ├── routes/      # API endpoints (including summarize.js)
 │   │   ├── utils/       # Export and utilities
 │   │   └── server.js    # Express setup
 │   └── package.json
@@ -276,6 +304,19 @@ cc_context_eng/
 - `POST /api/backup/:sessionId/compare` - Compare versions
 - `GET /api/backup/:sessionId/verify/:version` - Verify integrity
 
+### Summarization
+- `POST /api/summarize/:sessionId/preview` - Preview summarization impact
+- `POST /api/summarize/:sessionId/apply` - Apply summarization
+- `GET /api/summarize/presets` - Get tier presets
+- `GET /api/summarize/status` - Check Claude CLI availability
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3001` | Backend server port |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Path to Claude CLI config directory |
+
 ## Development Notes
 
 ### Extending File Tracking
@@ -304,6 +345,7 @@ Currently uses character count (1 token ≈ 4 chars). To integrate actual tokeni
 - ✅ Token tracking and metrics
 - ✅ Backup versioning
 - ✅ Subagent identification
+- ✅ AI-powered conversation compression (tiered summarization)
 
 ### Planned
 - [ ] Batch processing multiple sessions
@@ -311,7 +353,6 @@ Currently uses character count (1 token ≈ 4 chars). To integrate actual tokeni
 - [ ] Diff viewer (before/after comparison)
 - [ ] Search/filter messages by content or timestamp
 - [ ] Auto-save and auto-backup features
-- [ ] Conversation compression (summarize old sections)
 - [ ] Export to different formats (CSV, Excel)
 - [ ] Undo/redo in UI
 
@@ -335,6 +376,13 @@ Currently uses character count (1 token ≈ 4 chars). To integrate actual tokeni
 - Check `./backups` directory exists
 - Verify version number is valid
 - Run verification to check integrity
+
+### AI Summarization not working
+- Ensure Claude CLI is installed: `npm install -g @anthropic-ai/claude-code`
+- Verify authentication: `claude --version`
+- Check `CLAUDE_CONFIG_DIR` environment variable if using custom config location
+- Large conversations may take several minutes - the system chunks messages automatically
+- Check backend console logs for detailed error messages
 
 ## Security Considerations
 
