@@ -83,7 +83,6 @@ const DEFAULT_CONFIG = {
   version: "1.0.0",
   createdAt: null, // Set on first creation
   storage: {
-    useSymlinks: true,
     maxCacheSize: "1GB",
     compressionRetention: "all"
   },
@@ -3177,11 +3176,6 @@ async function createCompressionVersion(sessionId, settings) {
 
       <div class="settings-section">
         <h4>Storage</h4>
-        <div class="setting-row">
-          <label>Use Symlinks:</label>
-          <input type="checkbox" v-model="settings.storage.useSymlinks" />
-          <span class="hint">Faster, but may not work on all systems</span>
-        </div>
         <div class="setting-row">
           <label>Max Cache Size:</label>
           <select v-model="settings.storage.maxCacheSize">

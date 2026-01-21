@@ -347,7 +347,6 @@ Examples:
   "createdAt": "2026-01-20T10:00:00Z",
 
   "storage": {
-    "useSymlinks": true,
     "maxCacheSize": "1GB",
     "compressionRetention": "all"
   },
@@ -1341,7 +1340,6 @@ Response: {
 {
   "version": "1.0.0",
   "storage": {
-    "useSymlinks": true,
     "maxCacheSize": "1GB",
     "compressionRetention": "all"
   },

@@ -10,7 +10,6 @@ const DEFAULT_CONFIG = {
   version: "1.0.0",
   createdAt: null, // Set on first creation
   storage: {
-    useSymlinks: true,
     maxCacheSize: "1GB",
     compressionRetention: "all"
   },
@@ -200,9 +199,6 @@ export function validateConfig(config) {
 
   // Storage validation
   if (config.storage) {
-    if (typeof config.storage.useSymlinks !== 'boolean' && config.storage.useSymlinks !== undefined) {
-      errors.push('storage.useSymlinks must be a boolean');
-    }
     if (config.storage.maxCacheSize !== undefined && typeof config.storage.maxCacheSize !== 'string') {
       errors.push('storage.maxCacheSize must be a string (e.g., "1GB")');
     }

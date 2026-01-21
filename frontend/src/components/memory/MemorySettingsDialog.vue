@@ -21,13 +21,6 @@
         <div class="settings-section">
           <h4>Storage</h4>
           <div class="setting-row">
-            <label>
-              <input type="checkbox" v-model="settings.storage.useSymlinks" />
-              <span class="setting-label">Use Symlinks</span>
-            </label>
-            <span class="setting-hint">Faster access, but may not work on all systems</span>
-          </div>
-          <div class="setting-row">
             <label class="setting-label">Max Cache Size</label>
             <select v-model="settings.storage.maxCacheSize" class="setting-select">
               <option value="256MB">256 MB</option>
@@ -180,7 +173,6 @@ const error = ref(null);
 // Settings with defaults
 const settings = reactive({
   storage: {
-    useSymlinks: true,
     maxCacheSize: '512MB'
   },
   defaults: {
@@ -206,7 +198,6 @@ const settings = reactive({
 
 const defaultSettings = {
   storage: {
-    useSymlinks: true,
     maxCacheSize: '512MB'
   },
   defaults: {
