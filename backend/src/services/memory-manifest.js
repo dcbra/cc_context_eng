@@ -146,6 +146,22 @@ function validateSessionEntry(sessionId, session) {
     errors.push('compressions must be an array');
   }
 
+  // Sync tracking fields (optional, for backwards compatibility)
+  if (session.lastSyncedTimestamp !== undefined && session.lastSyncedTimestamp !== null &&
+      typeof session.lastSyncedTimestamp !== 'string') {
+    errors.push('lastSyncedTimestamp must be an ISO date string or null');
+  }
+
+  if (session.lastSyncedMessageUuid !== undefined && session.lastSyncedMessageUuid !== null &&
+      typeof session.lastSyncedMessageUuid !== 'string') {
+    errors.push('lastSyncedMessageUuid must be a string or null');
+  }
+
+  if (session.messageCount !== undefined &&
+      (typeof session.messageCount !== 'number' || session.messageCount < 0)) {
+    errors.push('messageCount must be a non-negative number');
+  }
+
   return errors;
 }
 

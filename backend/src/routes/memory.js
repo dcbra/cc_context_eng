@@ -29,6 +29,11 @@ import {
   findUnregisteredSessions
 } from '../services/memory-session.js';
 import {
+  detectNewMessages,
+  syncNewMessages,
+  getSyncStatus
+} from '../services/memory-sync.js';
+import {
   createCompressionVersion,
   listCompressionVersions,
   getCompressionVersion,
@@ -577,6 +582,52 @@ router.get('/projects/:projectId/sessions/:sessionId/status', async (req, res, n
       registered
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// Sync Endpoints
+// ============================================
+
+/**
+ * GET /api/memory/sessions/:projectId/:sessionId/sync/status
+ * Check sync status - whether original session has new messages
+ */
+router.get('/sessions/:projectId/:sessionId/sync/status', async (req, res, next) => {
+  try {
+    const { projectId, sessionId } = req.params;
+
+    const status = await getSyncStatus(projectId, sessionId);
+    res.json(status);
+  } catch (error) {
+    if (error.code === 'SESSION_NOT_FOUND') {
+      return res.status(404).json({
+        error: error.message,
+        code: error.code
+      });
+    }
+    next(error);
+  }
+});
+
+/**
+ * POST /api/memory/sessions/:projectId/:sessionId/sync
+ * Perform sync - append new messages from original to memory copy
+ */
+router.post('/sessions/:projectId/:sessionId/sync', async (req, res, next) => {
+  try {
+    const { projectId, sessionId } = req.params;
+
+    const result = await syncNewMessages(projectId, sessionId);
+    res.json(result);
+  } catch (error) {
+    if (error.code === 'SESSION_NOT_FOUND' || error.code === 'ORIGINAL_NOT_FOUND' || error.code === 'COPY_NOT_FOUND') {
+      return res.status(404).json({
+        error: error.message,
+        code: error.code
+      });
+    }
     next(error);
   }
 });

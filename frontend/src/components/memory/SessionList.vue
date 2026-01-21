@@ -9,7 +9,8 @@
         class="session-item"
         :class="{
           selected: session.sessionId === selectedSessionId,
-          'has-versions': session.compressionCount > 0
+          'has-versions': session.compressionCount > 0,
+          'has-sync': getSyncInfo(session.sessionId)?.hasNewMessages
         }"
         @click="$emit('select', session)"
       >
@@ -27,9 +28,31 @@
             <span v-if="session.compressionCount > 0" class="version-badge">
               {{ session.compressionCount }} ver.
             </span>
+            <!-- Sync indicator -->
+            <span
+              v-if="getSyncInfo(session.sessionId)?.hasNewMessages"
+              class="sync-badge"
+              :title="`${getSyncInfo(session.sessionId).newCount} new messages available`"
+            >
+              +{{ getSyncInfo(session.sessionId).newCount }} new
+            </span>
           </span>
         </div>
-        <span class="session-date">{{ formatShortDate(session.firstTimestamp) }}</span>
+        <div class="session-actions">
+          <!-- Sync button -->
+          <button
+            v-if="getSyncInfo(session.sessionId)?.hasNewMessages"
+            class="btn-sync"
+            :class="{ syncing: syncingSessionId === session.sessionId }"
+            :disabled="syncingSessionId === session.sessionId"
+            @click.stop="handleSync(session.sessionId)"
+            title="Sync new messages from original"
+          >
+            <span v-if="syncingSessionId === session.sessionId">...</span>
+            <span v-else>S</span>
+          </button>
+          <span class="session-date">{{ formatShortDate(session.firstTimestamp) }}</span>
+        </div>
       </div>
     </div>
 
@@ -70,7 +93,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps({
   sessions: {
@@ -84,10 +107,17 @@ const props = defineProps({
   selectedSessionId: {
     type: String,
     default: ''
+  },
+  syncStatus: {
+    type: Object,
+    default: () => ({})
   }
 });
 
-defineEmits(['select', 'register']);
+const emit = defineEmits(['select', 'register', 'sync']);
+
+// Local state for tracking which session is syncing
+const syncingSessionId = ref(null);
 
 // Group sessions by month
 const groupedSessions = computed(() => {
@@ -110,6 +140,32 @@ const groupedSessions = computed(() => {
 
   return groups;
 });
+
+function getSyncInfo(sessionId) {
+  return props.syncStatus[sessionId] || null;
+}
+
+async function handleSync(sessionId) {
+  syncingSessionId.value = sessionId;
+  try {
+    emit('sync', sessionId);
+  } finally {
+    // The parent will handle resetting this when sync completes
+    // We'll reset it after a delay in case parent doesn't handle it
+    setTimeout(() => {
+      if (syncingSessionId.value === sessionId) {
+        syncingSessionId.value = null;
+      }
+    }, 5000);
+  }
+}
+
+// Expose method to clear syncing state (called by parent after sync completes)
+function clearSyncing() {
+  syncingSessionId.value = null;
+}
+
+defineExpose({ clearSyncing });
 
 function formatSessionId(sessionId) {
   if (!sessionId) return '';
@@ -184,6 +240,10 @@ function formatShortDate(timestamp) {
   border-left: 3px solid #667eea;
 }
 
+.session-item.has-sync {
+  border-right: 3px solid #ff9800;
+}
+
 .session-item.unregistered {
   background-color: #fafafa;
   opacity: 0.8;
@@ -230,6 +290,7 @@ function formatShortDate(timestamp) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .version-badge {
@@ -241,14 +302,70 @@ function formatShortDate(timestamp) {
   font-weight: 600;
 }
 
+.sync-badge {
+  padding: 0.125rem 0.375rem;
+  background: #ff9800;
+  color: white;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .message-count {
   color: #999;
+}
+
+.session-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .session-date {
   font-size: 0.75rem;
   color: #999;
   white-space: nowrap;
+}
+
+.btn-sync {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: #ff9800;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.btn-sync:hover:not(:disabled) {
+  background: #f57c00;
+  transform: scale(1.1);
+}
+
+.btn-sync:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.btn-sync.syncing {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .unregistered-section {

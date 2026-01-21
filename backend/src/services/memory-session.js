@@ -120,6 +120,24 @@ function getLastTimestamp(parsed) {
 }
 
 /**
+ * Get the last message's UUID from parsed session (for sync tracking)
+ * Uses proper Date comparison, not ISO string subtraction
+ */
+function getLastMessageUuid(parsed) {
+  if (!parsed.messages || parsed.messages.length === 0) {
+    return null;
+  }
+
+  // Sort messages by timestamp to find the most recent one
+  // CRITICAL: Use new Date() for proper comparison, not raw string subtraction
+  const sortedMessages = [...parsed.messages]
+    .filter(m => m.timestamp)
+    .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+
+  return sortedMessages[0]?.uuid || null;
+}
+
+/**
  * Calculate total tokens from parsed session
  */
 function calculateTotalTokens(parsed) {
@@ -128,38 +146,22 @@ function calculateTotalTokens(parsed) {
 }
 
 /**
- * Create a symlink or copy the session file to the originals directory
- * Falls back to copy if symlinks are not supported (e.g., Windows without admin)
+ * Copy the session file to the originals directory
+ * Always copies (no symlinks) to ensure memory system has its own copy
+ * that won't be affected if the original is compressed/sanitized
  */
-async function linkOrCopyOriginal(sourcePath, projectId, sessionId) {
-  const config = await loadGlobalConfig();
-  const useSymlinks = config.storage?.useSymlinks !== false;
-
+async function copyOriginal(sourcePath, projectId, sessionId) {
   const originalsDir = getOriginalsDir(projectId);
   await fs.ensureDir(originalsDir);
 
   const destPath = path.join(originalsDir, `${sessionId}.jsonl`);
 
-  // Remove existing link/file if present
+  // Remove existing file if present
   if (await fs.pathExists(destPath)) {
     await fs.remove(destPath);
   }
 
-  if (useSymlinks) {
-    try {
-      await fs.symlink(sourcePath, destPath);
-      return { type: 'symlink', path: destPath };
-    } catch (error) {
-      // Symlink failed, fall back to copy
-      if (error.code === 'EPERM' || error.code === 'ENOSYS') {
-        console.warn(`Symlink failed (${error.code}), falling back to copy`);
-      } else {
-        throw error;
-      }
-    }
-  }
-
-  // Fall back to copy
+  // Always copy (no symlinks) to have our own independent copy
   await fs.copy(sourcePath, destPath);
   return { type: 'copy', path: destPath };
 }
@@ -231,13 +233,14 @@ export async function registerSession(projectId, sessionId, options = {}) {
     throw parseError;
   }
 
-  // Create symlink or copy
-  const linkResult = await linkOrCopyOriginal(originalFilePath, projectId, sessionId);
+  // Copy the session file (always copy, no symlinks for sync support)
+  const copyResult = await copyOriginal(originalFilePath, projectId, sessionId);
 
   // Extract metadata
   const metadata = extractMetadata(parsed);
   const firstTimestamp = getFirstTimestamp(parsed);
   const lastTimestamp = getLastTimestamp(parsed);
+  const lastMessageUuid = getLastMessageUuid(parsed);
   const totalTokens = calculateTotalTokens(parsed);
 
   // Extract keepit markers from all messages
@@ -248,8 +251,8 @@ export async function registerSession(projectId, sessionId, options = {}) {
   const sessionEntry = {
     sessionId,
     originalFile: originalFilePath,
-    linkedFile: linkResult.path,
-    linkType: linkResult.type,
+    linkedFile: copyResult.path,
+    linkType: copyResult.type,
     originalTokens: totalTokens,
     originalMessages: parsed.totalMessages,
     firstTimestamp,
@@ -258,7 +261,11 @@ export async function registerSession(projectId, sessionId, options = {}) {
     lastAccessed: now,
     metadata,
     keepitMarkers,
-    compressions: []
+    compressions: [],
+    // Sync tracking fields
+    lastSyncedTimestamp: lastTimestamp,
+    lastSyncedMessageUuid: lastMessageUuid,
+    messageCount: parsed.totalMessages
   };
 
   // Save to manifest
@@ -396,6 +403,7 @@ export async function refreshSession(projectId, sessionId) {
   const metadata = extractMetadata(parsed);
   const firstTimestamp = getFirstTimestamp(parsed);
   const lastTimestamp = getLastTimestamp(parsed);
+  const lastMessageUuid = getLastMessageUuid(parsed);
   const totalTokens = calculateTotalTokens(parsed);
 
   // Re-extract keepit markers
@@ -409,11 +417,15 @@ export async function refreshSession(projectId, sessionId) {
     lastTimestamp,
     lastAccessed: new Date().toISOString(),
     metadata,
-    keepitMarkers
+    keepitMarkers,
+    // Update sync tracking fields
+    lastSyncedTimestamp: lastTimestamp,
+    lastSyncedMessageUuid: lastMessageUuid,
+    messageCount: parsed.totalMessages
   };
 
-  // Update the symlink/copy if needed
-  await linkOrCopyOriginal(session.originalFile, projectId, sessionId);
+  // Update the copy
+  await copyOriginal(session.originalFile, projectId, sessionId);
 
   // Save to manifest
   await setSession(projectId, sessionId, updatedEntry);

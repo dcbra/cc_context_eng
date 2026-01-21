@@ -301,6 +301,38 @@ export async function batchUnregisterSessions(projectId, sessionIds, options = {
 }
 
 // ============================================
+// Session Sync Endpoints
+// ============================================
+
+/**
+ * Get sync status for a session
+ * Checks if original session has new messages not in memory copy
+ * @param {string} projectId - The project ID
+ * @param {string} sessionId - The session ID
+ * @returns {Promise<{ hasNewMessages: boolean, newCount: number, lastSynced: string, originalExists: boolean }>}
+ */
+export async function getSyncStatus(projectId, sessionId) {
+  const response = await fetch(
+    `${API_BASE}/sessions/${encodeURIComponent(projectId)}/${encodeURIComponent(sessionId)}/sync/status`
+  );
+  return handleResponse(response, 'Failed to get sync status');
+}
+
+/**
+ * Sync a session - append new messages from original to memory copy
+ * @param {string} projectId - The project ID
+ * @param {string} sessionId - The session ID
+ * @returns {Promise<{ syncedCount: number, newLastTimestamp: string }>}
+ */
+export async function syncSession(projectId, sessionId) {
+  const response = await fetch(
+    `${API_BASE}/sessions/${encodeURIComponent(projectId)}/${encodeURIComponent(sessionId)}/sync`,
+    { method: 'POST' }
+  );
+  return handleResponse(response, 'Failed to sync session');
+}
+
+// ============================================
 // Compression Version Endpoints
 // ============================================
 

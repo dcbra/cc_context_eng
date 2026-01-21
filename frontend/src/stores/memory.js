@@ -32,6 +32,9 @@ export const useMemoryStore = defineStore('memory', () => {
   const currentSession = ref(null);
   const unregisteredSessions = ref([]);
 
+  // Sync state - tracks which sessions have new messages available
+  const syncStatus = ref({}); // Map of sessionId -> { hasNewMessages, newCount, lastSynced }
+
   // Compression version state
   const versions = ref([]);
   const currentVersion = ref(null);
@@ -67,7 +70,8 @@ export const useMemoryStore = defineStore('memory', () => {
     composition: false,
     stats: false,
     export: false,
-    import: false
+    import: false,
+    sync: false
   });
 
   // Error state
@@ -492,6 +496,133 @@ export const useMemoryStore = defineStore('memory', () => {
     } finally {
       loading.value.session = false;
     }
+  }
+
+  // ============================================
+  // Session Sync Actions
+  // ============================================
+
+  /**
+   * Check sync status for a session
+   */
+  async function checkSyncStatus(projectId, sessionId) {
+    loading.value.sync = true;
+    clearError();
+    try {
+      const status = await memoryApi.getSyncStatus(projectId, sessionId);
+
+      // Update sync status map
+      syncStatus.value[sessionId] = {
+        hasNewMessages: status.hasNewMessages,
+        newCount: status.newCount,
+        lastSynced: status.lastSynced,
+        originalExists: status.originalExists
+      };
+
+      return status;
+    } catch (err) {
+      setError(err);
+      throw err;
+    } finally {
+      loading.value.sync = false;
+    }
+  }
+
+  /**
+   * Check sync status for all sessions in the current project
+   */
+  async function checkAllSyncStatus(projectId = null) {
+    const pid = projectId || currentProjectId.value;
+    if (!pid) {
+      throw new Error('No project selected');
+    }
+
+    loading.value.sync = true;
+    clearError();
+    try {
+      // Check sync status for each session in parallel
+      const results = await Promise.all(
+        sessions.value.map(session =>
+          memoryApi.getSyncStatus(pid, session.sessionId)
+            .then(status => ({ sessionId: session.sessionId, status }))
+            .catch(() => ({ sessionId: session.sessionId, status: null }))
+        )
+      );
+
+      // Update sync status map
+      for (const result of results) {
+        if (result.status) {
+          syncStatus.value[result.sessionId] = {
+            hasNewMessages: result.status.hasNewMessages,
+            newCount: result.status.newCount,
+            lastSynced: result.status.lastSynced,
+            originalExists: result.status.originalExists
+          };
+        }
+      }
+
+      return syncStatus.value;
+    } catch (err) {
+      setError(err);
+      throw err;
+    } finally {
+      loading.value.sync = false;
+    }
+  }
+
+  /**
+   * Sync a session - append new messages from original
+   */
+  async function syncSession(projectId, sessionId) {
+    loading.value.sync = true;
+    clearError();
+    try {
+      const result = await memoryApi.syncSession(projectId, sessionId);
+
+      // Update session in local state
+      const idx = sessions.value.findIndex(s => s.sessionId === sessionId);
+      if (idx !== -1) {
+        sessions.value[idx] = {
+          ...sessions.value[idx],
+          lastSyncedTimestamp: result.newLastTimestamp,
+          lastSyncedMessageUuid: result.newLastMessageUuid,
+          messageCount: result.newMessageCount,
+          originalMessages: result.newMessageCount
+        };
+      }
+
+      if (currentSession.value?.sessionId === sessionId) {
+        currentSession.value = {
+          ...currentSession.value,
+          lastSyncedTimestamp: result.newLastTimestamp,
+          lastSyncedMessageUuid: result.newLastMessageUuid,
+          messageCount: result.newMessageCount,
+          originalMessages: result.newMessageCount
+        };
+      }
+
+      // Clear sync status for this session (it's now up to date)
+      syncStatus.value[sessionId] = {
+        hasNewMessages: false,
+        newCount: 0,
+        lastSynced: result.newLastTimestamp,
+        originalExists: true
+      };
+
+      return result;
+    } catch (err) {
+      setError(err);
+      throw err;
+    } finally {
+      loading.value.sync = false;
+    }
+  }
+
+  /**
+   * Clear sync status for all sessions
+   */
+  function clearSyncStatus() {
+    syncStatus.value = {};
   }
 
   // ============================================
@@ -1008,6 +1139,7 @@ export const useMemoryStore = defineStore('memory', () => {
     sessions.value = [];
     currentSession.value = null;
     unregisteredSessions.value = [];
+    syncStatus.value = {};
     versions.value = [];
     currentVersion.value = null;
     compressionPresets.value = null;
@@ -1041,6 +1173,7 @@ export const useMemoryStore = defineStore('memory', () => {
     sessions,
     currentSession,
     unregisteredSessions,
+    syncStatus,
     versions,
     currentVersion,
     compressionPresets,
@@ -1093,6 +1226,12 @@ export const useMemoryStore = defineStore('memory', () => {
     batchRegisterSessions,
     findUnregisteredSessions,
     refreshSession,
+
+    // Sync actions
+    checkSyncStatus,
+    checkAllSyncStatus,
+    syncSession,
+    clearSyncStatus,
 
     // Version actions
     loadCompressionPresets,
