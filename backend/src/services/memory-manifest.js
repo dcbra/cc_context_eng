@@ -144,6 +144,68 @@ function validateSessionEntry(sessionId, session) {
 
   if (!Array.isArray(session.compressions)) {
     errors.push('compressions must be an array');
+  } else {
+    // Validate compression records for incremental compression fields
+    for (let i = 0; i < session.compressions.length; i++) {
+      const comp = session.compressions[i];
+      const prefix = `compressions[${i}]`;
+
+      // partNumber validation (optional for backwards compatibility)
+      if (comp.partNumber !== undefined) {
+        if (typeof comp.partNumber !== 'number' || comp.partNumber < 1) {
+          errors.push(`${prefix}.partNumber must be a positive number`);
+        }
+      }
+
+      // compressionLevel validation (optional for backwards compatibility)
+      if (comp.compressionLevel !== undefined) {
+        const validLevels = ['light', 'moderate', 'aggressive'];
+        if (typeof comp.compressionLevel !== 'string' || !validLevels.includes(comp.compressionLevel)) {
+          errors.push(`${prefix}.compressionLevel must be one of: ${validLevels.join(', ')}`);
+        }
+      }
+
+      // isFullSession validation (optional for backwards compatibility)
+      if (comp.isFullSession !== undefined) {
+        if (typeof comp.isFullSession !== 'boolean') {
+          errors.push(`${prefix}.isFullSession must be a boolean`);
+        }
+      }
+
+      // messageRange validation (optional for backwards compatibility)
+      if (comp.messageRange !== undefined) {
+        if (typeof comp.messageRange !== 'object' || comp.messageRange === null) {
+          errors.push(`${prefix}.messageRange must be an object`);
+        } else {
+          const range = comp.messageRange;
+
+          if (range.startTimestamp !== undefined && range.startTimestamp !== null &&
+              typeof range.startTimestamp !== 'string') {
+            errors.push(`${prefix}.messageRange.startTimestamp must be an ISO string or null`);
+          }
+
+          if (range.endTimestamp !== undefined && range.endTimestamp !== null &&
+              typeof range.endTimestamp !== 'string') {
+            errors.push(`${prefix}.messageRange.endTimestamp must be an ISO string or null`);
+          }
+
+          if (range.startIndex !== undefined &&
+              (typeof range.startIndex !== 'number' || range.startIndex < 0)) {
+            errors.push(`${prefix}.messageRange.startIndex must be a non-negative number`);
+          }
+
+          if (range.endIndex !== undefined &&
+              (typeof range.endIndex !== 'number' || range.endIndex < 0)) {
+            errors.push(`${prefix}.messageRange.endIndex must be a non-negative number`);
+          }
+
+          if (range.messageCount !== undefined &&
+              (typeof range.messageCount !== 'number' || range.messageCount < 0)) {
+            errors.push(`${prefix}.messageRange.messageCount must be a non-negative number`);
+          }
+        }
+      }
+    }
   }
 
   // Sync tracking fields (optional, for backwards compatibility)

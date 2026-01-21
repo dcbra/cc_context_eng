@@ -3,7 +3,7 @@ import path from 'path';
 import { getProjectDir, getManifestPath } from './memory-storage.js';
 
 // Current schema version
-export const CURRENT_SCHEMA_VERSION = '1.0.0';
+export const CURRENT_SCHEMA_VERSION = '1.1.0';
 
 /**
  * Migration definitions for each version
@@ -17,18 +17,58 @@ const MIGRATIONS = {
   '1.0.0': {
     description: 'Base version - no migration needed',
     migrate: async (manifest) => manifest
+  },
+  '1.1.0': {
+    description: 'Mark existing compressions as full-session for incremental compression support',
+    migrate: async (manifest) => {
+      for (const session of Object.values(manifest.sessions || {})) {
+        for (const compression of session.compressions || []) {
+          // Only migrate if partNumber is not already set
+          if (compression.partNumber === undefined) {
+            // Legacy compression - mark as covering full session
+            compression.isFullSession = true;
+            compression.partNumber = 1;
+
+            // Determine compression level from settings
+            compression.compressionLevel = determineCompressionLevel(compression.settings);
+
+            // Populate messageRange from session data
+            compression.messageRange = {
+              startIndex: 0,
+              endIndex: session.originalMessages || compression.inputMessages || 0,
+              messageCount: session.originalMessages || compression.inputMessages || 0,
+              startTimestamp: session.firstTimestamp || null,
+              endTimestamp: session.lastSyncedTimestamp || session.lastTimestamp || null
+            };
+          }
+        }
+      }
+      return manifest;
+    }
   }
-  // Future migrations will be added here:
-  // '1.1.0': {
-  //   description: 'Add new field X to sessions',
-  //   migrate: async (manifest) => {
-  //     for (const session of Object.values(manifest.sessions)) {
-  //       session.newFieldX = session.newFieldX ?? 'default';
-  //     }
-  //     return manifest;
-  //   }
-  // }
 };
+
+/**
+ * Helper to determine compression level from settings
+ * Used during migration of legacy compressions
+ */
+function determineCompressionLevel(settings) {
+  if (!settings) return 'moderate';
+
+  if (settings.mode === 'tiered') {
+    const preset = settings.tierPreset || 'standard';
+    if (preset === 'gentle') return 'light';
+    if (preset === 'standard') return 'moderate';
+    if (preset === 'aggressive') return 'aggressive';
+    return 'moderate';
+  }
+
+  const aggr = settings.aggressiveness || 'moderate';
+  if (aggr === 'minimal') return 'light';
+  if (aggr === 'moderate') return 'moderate';
+  if (aggr === 'aggressive') return 'aggressive';
+  return 'moderate';
+}
 
 /**
  * Compare two semver version strings
