@@ -37,6 +37,15 @@ A web application for managing, analyzing, and sanitizing Claude Code context fi
 - **Backup Verification**: Validate JSONL integrity
 - **One-click Restore**: Revert to any previous version
 
+### 🧠 Memory System
+- **Layered Compression**: Maintain multiple compression versions without re-compressing summaries
+- **Smart Composition**: Combine sessions with age-based compression selection
+- **Keepit Markers**: Weight-based importance markers (`##keepit0.80##`) that survive compression
+- **Decay Model**: Automatic importance decay based on session age and compression level
+- **Cross-Session Context**: Build coherent context from multiple historical sessions
+
+See [Memory Manual](docs/MEMORY_MANUAL.md) for detailed usage guide.
+
 ### 📄 Export Options
 - **Markdown Export**: Readable conversation transcripts with metadata
 - **Plain Text Export**: Simple conversation timeline
@@ -60,6 +69,7 @@ A web application for managing, analyzing, and sanitizing Claude Code context fi
 - `backup-manager.js` - Version control with rotation and restore
 - `markdown-export.js` - Convert sessions to readable formats
 - `summarizer.js` - AI-powered conversation summarization via Claude CLI
+- `memory/` - Memory system services (storage, manifest, compression, composition, decay)
 
 **API Routes:**
 - `/api/projects` - List projects and sessions
@@ -67,6 +77,7 @@ A web application for managing, analyzing, and sanitizing Claude Code context fi
 - `/api/sanitize/:id` - Apply sanitization rules
 - `/api/backup/:id/*` - Manage backups and restore
 - `/api/summarize/:id/*` - AI-powered conversation summarization
+- `/api/memory/*` - Memory system (sessions, versions, compositions, decay)
 
 ### Frontend (Vue 3 + Pinia)
 
@@ -74,6 +85,7 @@ A web application for managing, analyzing, and sanitizing Claude Code context fi
 - `session.js` - Current session state
 - `selection.js` - Message/file selection state
 - `history.js` - Undo/redo operations
+- `memory.js` - Memory system state (sessions, versions, compositions)
 
 **Components:**
 - `ProjectBrowser.vue` - Project/session discovery and selection
@@ -83,6 +95,7 @@ A web application for managing, analyzing, and sanitizing Claude Code context fi
 - `SanitizationPanel.vue` - Configure and preview sanitization
 - `TokenCalculator.vue` - Token analysis and metrics
 - `BackupManager.vue` - Version control UI
+- `memory/` - Memory system UI (browser, composition builder, keepit editor)
 
 ## Installation & Setup
 
@@ -195,6 +208,14 @@ npm run frontend:build
   - **Export Markdown**: Creates readable markdown transcript
 - **Requirements**: Claude CLI must be installed and authenticated
 
+### 8. Memory System
+- Press **Ctrl+Shift+M** or click the **Memory** tab
+- **Register Sessions**: Track sessions for long-term memory
+- **Create Versions**: Generate compression versions (light, moderate, aggressive)
+- **Compose Context**: Combine multiple sessions with smart version selection
+- **Keepit Markers**: Add `##keepit0.80##` to important content in your conversations
+- See [Memory Manual](docs/MEMORY_MANUAL.md) for complete documentation
+
 ## Key Concepts
 
 ### Message Threading
@@ -268,6 +289,9 @@ cc_context_eng/
 │   ├── vite.config.js
 │   └── package.json
 ├── backups/             # Version control directory
+├── docs/
+│   ├── MEMORY_MANUAL.md           # Memory system user guide
+│   └── MEMORY_SYSTEM_DESIGN.md    # Technical specification
 └── README.md
 ```
 
@@ -334,6 +358,17 @@ cc_context_eng/
 - `GET /api/summarize/presets` - Get tier presets
 - `GET /api/summarize/status` - Check Claude CLI availability
 
+### Memory System
+- `GET /api/memory/sessions` - List registered sessions
+- `POST /api/memory/sessions` - Register a session
+- `DELETE /api/memory/sessions/:id` - Unregister a session
+- `GET /api/memory/sessions/:id/versions` - List compression versions
+- `POST /api/memory/sessions/:id/versions` - Create compression version
+- `POST /api/memory/compose` - Create a composition
+- `POST /api/memory/compose/preview` - Preview composition
+- `GET /api/memory/stats` - Memory statistics
+- `POST /api/memory/decay/preview` - Preview decay effects
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -383,9 +418,12 @@ This tool helps you manage context more effectively, but be aware that once Clau
 - ✅ Backup versioning
 - ✅ Subagent identification
 - ✅ AI-powered conversation compression (tiered summarization)
+- ✅ Memory system with layered compression and smart composition
+- ✅ Keepit markers with decay model
 
 ### Planned
 - [ ] Batch processing multiple sessions
+- [ ] Cross-project memory compositions
 - [ ] Advanced tokenizer integration (js-tiktoken)
 - [ ] Diff viewer (before/after comparison)
 - [ ] Search/filter messages by content or timestamp
