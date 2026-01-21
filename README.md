@@ -39,6 +39,7 @@ A web application for managing, analyzing, and sanitizing Claude Code context fi
 
 ### 🧠 Memory System
 - **Layered Compression**: Maintain multiple compression versions without re-compressing summaries
+- **Incremental Delta Compression**: Compress only new messages since the last compression, saving API tokens
 - **Smart Composition**: Combine sessions with age-based compression selection
 - **Keepit Markers**: Weight-based importance markers (`##keepit0.80##`) that survive compression
 - **Decay Model**: Automatic importance decay based on session age and compression level

@@ -244,6 +244,142 @@ Valid examples:
 - Use more aggressive compression for older sessions
 - Increase token budget if possible
 
+## Incremental Delta Compression
+
+The Memory System supports incremental delta compression, which only compresses NEW messages since the last compression. This saves API tokens and time by avoiding re-compression of already compressed content.
+
+### The Problem with Full Re-compression
+
+Without incremental compression, each compression re-processes the entire session:
+
+```
+Session grows:     100 msgs -> 150 msgs -> 200 msgs
+
+Traditional approach (wasteful):
+compressed_v1:     [====================] 100 msgs compressed
+compressed_v2:     [==============================] 150 msgs (re-compresses first 100!)
+compressed_v3:     [========================================] 200 msgs (re-compresses all!)
+```
+
+### The Delta Compression Solution
+
+Delta compression only processes new messages since the last compression:
+
+```
+Session grows:     100 msgs -> 150 msgs -> 200 msgs
+
+Delta approach (efficient):
+part1:             [====================] msgs 1-100
+part2:                                  [==========] msgs 101-150 (delta only!)
+part3:                                              [==========] msgs 151-200 (delta only!)
+```
+
+### Part Naming Convention
+
+Compressed parts follow the naming pattern:
+
+```
+part{N}_v{M}_{mode}-{preset}_{tokens}k
+
+Where:
+- N = part number (1 = oldest, incrementing for newer message ranges)
+- M = version number within that part
+- mode = compression mode (tiered or uniform)
+- preset = compression preset used
+- tokens = approximate output tokens in thousands
+
+Examples:
+- part1_v001_tiered-standard_10k.jsonl  (messages 1-100, first version)
+- part1_v002_tiered-aggressive_5k.jsonl (messages 1-100, more aggressive)
+- part2_v001_tiered-standard_8k.jsonl   (messages 101-150, first version)
+```
+
+### Compression Levels
+
+Each part can have multiple versions at different compression levels:
+
+| Level | Name | Description |
+|-------|------|-------------|
+| 1 | Light | Gentle compression, preserves most detail |
+| 2 | Moderate | Balanced compression for general use |
+| 3 | Aggressive | Heavy compression, essential content only |
+
+You can create multiple versions of the same part at different levels, then select the appropriate one when composing context based on your token budget.
+
+### Using Delta Compression
+
+#### Check for New Messages
+
+The Session Details panel shows a "New Messages" section indicating:
+- Whether new uncompressed messages exist
+- How many new messages are available
+- Which part number will be created next
+
+#### Compress New Messages
+
+1. Open a registered session in the Memory Browser
+2. Look for the "New Messages" section
+3. Click **Compress New Messages** to create a new part
+4. Choose compression settings (level, mode)
+5. The new part is created covering only the delta messages
+
+#### Re-compress an Existing Part
+
+To create a different compression level for an existing part:
+
+1. View the session's compression versions
+2. Find the part you want to re-compress
+3. Click the **+** button next to the part header
+4. Select a different compression level
+5. A new version of that part is created
+
+### Workflow Example
+
+**Session lifecycle with delta compression:**
+
+```
+Day 1: Initial 100 messages
+  -> Register session
+  -> Create Part 1 (light compression)
+
+Day 2: Session grows to 180 messages (+80 new)
+  -> Sync session (detects 80 new messages)
+  -> Create Part 2 from delta (light compression)
+
+Day 3: Need to reduce token usage
+  -> Re-compress Part 1 at aggressive level
+  -> Re-compress Part 2 at moderate level
+
+Day 4: Compose context for new session
+  -> System selects Part 1 (aggressive) + Part 2 (moderate)
+  -> Combined output fits token budget
+```
+
+### UI Elements
+
+#### Session Details - Delta Section
+
+Shows the sync status between your session and existing compressions:
+- **New messages count**: Number of uncompressed messages
+- **Compress New Messages button**: Creates the next part
+- **Part number indicator**: Shows which part will be created
+
+#### Version List - Part Grouping
+
+Compression versions are grouped by part:
+- **Part header**: Shows part number and message range
+- **+ button**: Re-compress this part at a different level
+- **Version rows**: Each compression level for that part
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/memory/projects/:id/sessions/:id/delta` | GET | Check delta status |
+| `/api/memory/projects/:id/sessions/:id/delta` | POST | Create delta compression |
+| `/api/memory/projects/:id/sessions/:id/parts` | GET | List all parts |
+| `/api/memory/projects/:id/sessions/:id/parts/:n/recompress` | POST | Re-compress a part |
+
 ## Best Practices
 
 1. **Mark decisions early**: Add keepit markers during your session, not after
@@ -251,6 +387,8 @@ Valid examples:
 3. **Create versions incrementally**: Light first, then moderate, then aggressive
 4. **Review before composing**: Check what will be included in the preview
 5. **Keep compositions focused**: Include only sessions relevant to current work
+6. **Use delta compression**: For growing sessions, compress new messages incrementally to save API tokens
+7. **Re-compress strategically**: Create aggressive versions of older parts to reduce token usage while keeping recent parts at light compression
 
 ## Limitations
 
