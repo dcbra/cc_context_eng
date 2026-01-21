@@ -19,6 +19,30 @@ import {
 } from './memory-versions.js';
 import { extractTextContent } from './summarizer.js';
 import { readJsonlAsArray, readJsonlContent } from '../utils/streaming-jsonl.js';
+import {
+  getPartsByNumber,
+  getHighestPartNumber,
+  getPartVersions
+} from './memory-delta.js';
+// Part-aware composition functions
+import {
+  selectBestVersionsForParts,
+  calculateTotalPartTokens,
+  calculateTotalPartMessages,
+  checkPartsFitBudget,
+  composeFromParts,
+  getSessionPartInfo
+} from './composition-parts.js';
+
+// Re-export part functions for external use
+export {
+  selectBestVersionsForParts,
+  calculateTotalPartTokens,
+  calculateTotalPartMessages,
+  checkPartsFitBudget,
+  composeFromParts,
+  getSessionPartInfo
+};
 
 // ============================================
 // Task 4.1: Version Selection Algorithm
@@ -370,6 +394,30 @@ export async function composeContext(projectId, request) {
       versionId = selectedVersion.versionId;
       tokenContribution = selectedVersion.outputTokens;
       messageContribution = selectedVersion.outputMessages;
+    } else if (comp.usePartSelection) {
+      // Part-aware selection: select best version for each part
+      const selectedPartVersions = selectBestVersionsForParts(session, {
+        maxTokens: budget,
+        preserveKeepits: true
+      });
+
+      tokenContribution = calculateTotalPartTokens(selectedPartVersions);
+      messageContribution = calculateTotalPartMessages(selectedPartVersions);
+      versionId = 'auto-parts';
+
+      // Store selected parts info with the component
+      selectedComponents.push({
+        sessionId: comp.sessionId,
+        versionId,
+        order: i,
+        tokenContribution,
+        messageContribution,
+        allocatedBudget: budget,
+        selectedParts: selectedPartVersions // Array of part versions
+      });
+
+      totalMessages += messageContribution;
+      continue; // Skip the standard push below
     } else {
       // Auto-select best version or create new one
       const selectionResult = selectBestVersion(session, {
@@ -482,9 +530,31 @@ async function generateComposedOutput(projectId, name, components, manifest, for
     let content;
     let messages = [];
 
-    if (comp.versionId === 'original') {
+    if (comp.selectedParts && comp.selectedParts.length > 0) {
+      // Part-aware composition: combine messages from multiple parts
+      messages = await composeFromParts(projectId, comp.sessionId, comp.selectedParts);
+
+      // Build part info for content record
+      const partInfo = comp.selectedParts.map(p => ({
+        partNumber: p.partNumber,
+        versionId: p.versionId,
+        outputTokens: p.outputTokens,
+        isOriginal: p.isOriginal || false
+      }));
+
+      content = {
+        sessionId: comp.sessionId,
+        versionId: 'auto-parts',
+        isOriginal: false,
+        messages,
+        compressionRatio: null, // Multiple parts, no single ratio
+        timestamp: new Date().toISOString(),
+        parts: partInfo
+      };
+    } else if (comp.versionId === 'original') {
       // Read original session file
-      const parsed = await parseJsonlFile(session.originalFile);
+      const sourceFile = session.linkedFile || session.originalFile;
+      const parsed = await parseJsonlFile(sourceFile);
       messages = parsed.messages;
       content = {
         sessionId: comp.sessionId,
@@ -556,7 +626,13 @@ async function generateComposedOutput(projectId, name, components, manifest, for
       versionId: c.versionId,
       order: c.order,
       tokenContribution: c.tokenContribution,
-      messageContribution: c.messageContribution
+      messageContribution: c.messageContribution,
+      // Include selected parts info if available
+      selectedParts: c.selectedParts ? c.selectedParts.map(p => ({
+        partNumber: p.partNumber,
+        versionId: p.versionId,
+        outputTokens: p.outputTokens
+      })) : undefined
     })),
     totalTokens: components.reduce((sum, c) => sum + c.tokenContribution, 0),
     totalMessages: components.reduce((sum, c) => sum + c.messageContribution, 0),
@@ -564,7 +640,9 @@ async function generateComposedOutput(projectId, name, components, manifest, for
       sessionId: c.sessionId,
       versionId: c.versionId,
       isOriginal: c.isOriginal,
-      compressionRatio: c.compressionRatio
+      compressionRatio: c.compressionRatio,
+      // Include parts info if composition used parts
+      parts: c.parts || undefined
     }))
   }, null, 2);
 
@@ -1039,6 +1117,31 @@ export async function previewComposition(projectId, request) {
           };
         }
       }
+    } else if (comp.usePartSelection) {
+      // Part-aware selection preview
+      const selectedPartVersions = selectBestVersionsForParts(session, {
+        maxTokens: budget,
+        preserveKeepits: true
+      });
+
+      const totalPartTokens = calculateTotalPartTokens(selectedPartVersions);
+      const totalPartMessages = calculateTotalPartMessages(selectedPartVersions);
+
+      selectedVersionPreview = {
+        versionId: 'auto-parts',
+        action: 'use-parts',
+        tokens: totalPartTokens,
+        messages: totalPartMessages,
+        fitsInBudget: totalPartTokens <= budget,
+        partCount: selectedPartVersions.length,
+        parts: selectedPartVersions.map(p => ({
+          partNumber: p.partNumber,
+          versionId: p.versionId,
+          outputTokens: p.outputTokens,
+          isOriginal: p.isOriginal || false
+        }))
+      };
+      totalEstimatedTokens += totalPartTokens;
     } else {
       // Auto-select
       const selectionResult = selectBestVersion(session, {
@@ -1072,9 +1175,12 @@ export async function previewComposition(projectId, request) {
       }
     }
 
-    if (selectedVersionPreview.tokens) {
+    if (selectedVersionPreview.tokens && !comp.usePartSelection) {
       totalEstimatedTokens += selectedVersionPreview.tokens;
     }
+
+    // Get part info for the session
+    const partInfo = getSessionPartInfo(session);
 
     preview.push({
       sessionId: comp.sessionId,
@@ -1085,10 +1191,17 @@ export async function previewComposition(projectId, request) {
         ...(session.compressions || []).map(v => ({
           versionId: v.versionId,
           tokens: v.outputTokens,
-          compressionRatio: v.compressionRatio
+          compressionRatio: v.compressionRatio,
+          partNumber: v.partNumber
         }))
       ],
-      selectedVersion: selectedVersionPreview
+      selectedVersion: selectedVersionPreview,
+      // Include part info for UI
+      partInfo: partInfo.hasParts ? {
+        partCount: partInfo.partCount,
+        totalCompressedTokens: partInfo.totalCompressedTokens,
+        parts: partInfo.parts
+      } : null
     });
   }
 

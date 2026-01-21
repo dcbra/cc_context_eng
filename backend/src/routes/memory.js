@@ -83,6 +83,17 @@ import {
   exportProject,
   importProject
 } from '../services/memory-export.js';
+
+// Phase 2 - Delta Compression imports
+import {
+  getDeltaStatus,
+  getHighestPartNumber,
+  getPartsByNumber
+} from '../services/memory-delta.js';
+import {
+  createDeltaCompression,
+  recompressPart
+} from '../services/memory-versions-delta.js';
 import {
   MemoryError,
   ValidationError,
@@ -648,6 +659,166 @@ router.get('/projects/:projectId/stats', async (req, res, next) => {
 
     const stats = await getProjectSessionStats(projectId);
     res.json(stats);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// Delta Compression Endpoints (Incremental Compression)
+// ============================================
+
+/**
+ * GET /api/memory/projects/:projectId/sessions/:sessionId/delta/status
+ * Get delta status - what new messages exist since last compression
+ * Returns: { hasDelta, deltaCount, lastCompressedTimestamp, nextPartNumber }
+ */
+router.get('/projects/:projectId/sessions/:sessionId/delta/status', async (req, res, next) => {
+  try {
+    const { projectId, sessionId } = req.params;
+
+    const status = await getDeltaStatus(projectId, sessionId);
+    res.json(status);
+  } catch (error) {
+    if (error.code === 'SESSION_NOT_FOUND') {
+      return res.status(404).json({
+        error: error.message,
+        code: error.code
+      });
+    }
+    next(error);
+  }
+});
+
+/**
+ * POST /api/memory/projects/:projectId/sessions/:sessionId/delta/compress
+ * Create delta compression - compress only new messages since last compression
+ * Body: { mode, tierPreset, model, ... } (compression settings)
+ * Returns: compression record for the new part
+ */
+router.post('/projects/:projectId/sessions/:sessionId/delta/compress', async (req, res, next) => {
+  try {
+    const { projectId, sessionId } = req.params;
+    const settings = req.body;
+
+    const result = await createDeltaCompression(projectId, sessionId, settings);
+    res.status(201).json(result);
+  } catch (error) {
+    if (error.code === 'SESSION_NOT_FOUND' || error.code === 'SESSION_FILE_NOT_FOUND') {
+      return res.status(404).json({
+        error: error.message,
+        code: error.code
+      });
+    }
+    if (error.code === 'NO_DELTA' || error.code === 'INSUFFICIENT_MESSAGES' ||
+        error.code === 'INVALID_SETTINGS') {
+      return res.status(400).json({
+        error: error.message,
+        code: error.code
+      });
+    }
+    if (error.code === 'COMPRESSION_IN_PROGRESS') {
+      return res.status(409).json({
+        error: error.message,
+        code: error.code
+      });
+    }
+    next(error);
+  }
+});
+
+/**
+ * POST /api/memory/projects/:projectId/sessions/:sessionId/parts/:partNumber/recompress
+ * Re-compress an existing part at a different compression level
+ * Body: { compressionLevel } or full compression settings
+ * Returns: new compression record for same part at different level
+ */
+router.post('/projects/:projectId/sessions/:sessionId/parts/:partNumber/recompress', async (req, res, next) => {
+  try {
+    const { projectId, sessionId, partNumber } = req.params;
+    const settings = req.body;
+
+    const result = await recompressPart(projectId, sessionId, parseInt(partNumber, 10), settings);
+    res.status(201).json(result);
+  } catch (error) {
+    if (error.code === 'SESSION_NOT_FOUND' || error.code === 'PART_NOT_FOUND') {
+      return res.status(404).json({
+        error: error.message,
+        code: error.code
+      });
+    }
+    if (error.code === 'INVALID_PART' || error.code === 'INSUFFICIENT_MESSAGES' ||
+        error.code === 'INVALID_SETTINGS') {
+      return res.status(400).json({
+        error: error.message,
+        code: error.code
+      });
+    }
+    if (error.code === 'VERSION_EXISTS' || error.code === 'COMPRESSION_IN_PROGRESS') {
+      return res.status(409).json({
+        error: error.message,
+        code: error.code
+      });
+    }
+    next(error);
+  }
+});
+
+/**
+ * GET /api/memory/projects/:projectId/sessions/:sessionId/parts
+ * List all compression parts for a session, organized by part number
+ * Returns: { parts: [{ partNumber, versions: [...], messageRange }] }
+ */
+router.get('/projects/:projectId/sessions/:sessionId/parts', async (req, res, next) => {
+  try {
+    const { projectId, sessionId } = req.params;
+
+    if (!await manifestExists(projectId)) {
+      return res.status(404).json({
+        error: `Project not found: ${projectId}`,
+        code: 'PROJECT_NOT_FOUND'
+      });
+    }
+
+    const manifest = await loadManifest(projectId);
+    const session = manifest.sessions[sessionId];
+
+    if (!session) {
+      return res.status(404).json({
+        error: `Session ${sessionId} not found in project ${projectId}`,
+        code: 'SESSION_NOT_FOUND'
+      });
+    }
+
+    const partsByNumber = getPartsByNumber(session);
+
+    // Convert Map to array for JSON serialization
+    const parts = [];
+    for (const [partNumber, versions] of partsByNumber) {
+      parts.push({
+        partNumber,
+        messageRange: versions[0]?.messageRange || null,
+        versions: versions.map(v => ({
+          versionId: v.versionId,
+          file: v.file,
+          compressionLevel: v.compressionLevel,
+          outputTokens: v.outputTokens,
+          outputMessages: v.outputMessages,
+          compressionRatio: v.compressionRatio,
+          createdAt: v.createdAt,
+          settings: v.settings
+        }))
+      });
+    }
+
+    // Sort by part number
+    parts.sort((a, b) => a.partNumber - b.partNumber);
+
+    res.json({
+      sessionId,
+      totalParts: parts.length,
+      parts
+    });
   } catch (error) {
     next(error);
   }
