@@ -102,11 +102,42 @@
       <button @click="$emit('view-original')" class="btn-secondary">
         View Original Session
       </button>
+      <button @click="showUnregisterDialog = true" class="btn-danger">
+        Unregister Session
+      </button>
+    </div>
+
+    <!-- Unregister Confirmation Dialog -->
+    <div v-if="showUnregisterDialog" class="modal-overlay" @click.self="showUnregisterDialog = false">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3>Unregister Session?</h3>
+          <button @click="showUnregisterDialog = false" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p>This will remove the session from memory storage:</p>
+          <ul class="warning-list">
+            <li>Session will no longer appear in the memory browser</li>
+            <li>All compression versions will be removed</li>
+            <li>The original session file in <code>~/.claude/</code> will <strong>NOT</strong> be deleted</li>
+          </ul>
+          <p class="warning-note">You can re-register this session later if needed.</p>
+        </div>
+        <div class="modal-footer">
+          <button @click="showUnregisterDialog = false" class="btn-secondary">
+            Cancel
+          </button>
+          <button @click="handleUnregister" class="btn-danger" :disabled="unregistering">
+            {{ unregistering ? 'Unregistering...' : 'Unregister' }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue';
 import VersionList from './VersionList.vue';
 import KeepitListInline from './KeepitListInline.vue';
 import RefreshIcon from './icons/RefreshIcon.vue';
@@ -137,8 +168,12 @@ const emit = defineEmits([
   'compare-versions',
   'view-original',
   'refresh',
-  'back'
+  'back',
+  'unregister'
 ]);
+
+const showUnregisterDialog = ref(false);
+const unregistering = ref(false);
 
 function formatSessionId(sessionId) {
   if (!sessionId) return '';
@@ -169,6 +204,19 @@ function handleViewVersion(version) {
 
 function handleDeleteVersion(version) {
   emit('delete-version', version);
+}
+
+async function handleUnregister() {
+  unregistering.value = true;
+  try {
+    await emit('unregister', props.session.sessionId);
+    showUnregisterDialog.value = false;
+  } catch (error) {
+    console.error('Failed to unregister session:', error);
+    alert('Failed to unregister session: ' + error.message);
+  } finally {
+    unregistering.value = false;
+  }
 }
 </script>
 
@@ -414,5 +462,178 @@ function handleDeleteVersion(version) {
 
 .btn-secondary:hover {
   background: #f0f4ff;
+}
+
+.btn-danger {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: white;
+  color: #dc2626;
+  border: 1px solid #dc2626;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  margin-top: 0.5rem;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-dialog {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  color: #333;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.btn-close:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+.modal-body p {
+  margin: 0 0 1rem 0;
+  color: #333;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.warning-list {
+  margin: 0 0 1rem 0;
+  padding-left: 1.5rem;
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.warning-list li {
+  margin-bottom: 0.5rem;
+}
+
+.warning-list code {
+  background: #f5f5f5;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.85em;
+}
+
+.warning-note {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 4px;
+  padding: 0.75rem;
+  color: #92400e;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.modal-footer .btn-secondary {
+  width: auto;
+  padding: 0.5rem 1rem;
+  margin: 0;
+}
+
+.modal-footer .btn-danger {
+  width: auto;
+  padding: 0.5rem 1rem;
+  background: #dc2626;
+  color: white;
+  border: none;
+  margin: 0;
+}
+
+.modal-footer .btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
 }
 </style>

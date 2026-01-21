@@ -125,6 +125,7 @@
           @view-version="handleViewVersion"
           @delete-version="handleDeleteVersion"
           @view-original="handleViewOriginal"
+          @unregister="handleUnregisterFromDetails"
         />
       </div>
     </div>
@@ -281,6 +282,19 @@ async function handleUnregister(session) {
     await memoryStore.unregisterSession(currentProject.value.projectId, session.sessionId);
   } catch (err) {
     console.error('Failed to unregister session:', err);
+  }
+}
+
+async function handleUnregisterFromDetails(sessionId) {
+  if (!currentProject.value || !currentSession.value) return;
+
+  try {
+    await memoryStore.unregisterSession(currentProject.value.projectId, sessionId);
+    // Navigate back to session list after unregistering
+    clearSession();
+  } catch (err) {
+    console.error('Failed to unregister session:', err);
+    throw err; // Re-throw so the SessionDetails component can handle it
   }
 }
 
