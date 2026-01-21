@@ -180,9 +180,11 @@
         <button
           @click="applySanitization"
           class="btn-apply-action"
-          :disabled="!canApply || (showPreview && previewData && previewHasNoImpact)"
+          :disabled="!canApply || (showPreview && previewData && previewHasNoImpact) || loading"
+          :class="{ 'is-loading': loading }"
         >
-          ✓ Apply
+          <span v-if="loading" class="button-spinner"></span>
+          {{ loading ? 'Applying...' : '✓ Apply' }}
         </button>
       </div>
     </div>
@@ -1503,6 +1505,15 @@ async function saveToMemory(summarizationResult) {
   cursor: not-allowed;
   box-shadow: none;
   transform: none;
+}
+
+.btn-apply-action.is-loading {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
 }
 
 /* Duplicates Section */
