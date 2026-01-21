@@ -27,6 +27,9 @@
               <option value="512MB">512 MB</option>
               <option value="1GB">1 GB</option>
               <option value="2GB">2 GB</option>
+              <option value="5GB">5 GB</option>
+              <option value="10GB">10 GB</option>
+              <option value="unlimited">Unlimited</option>
             </select>
           </div>
         </div>
