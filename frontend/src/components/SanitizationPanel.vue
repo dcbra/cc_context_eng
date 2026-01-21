@@ -168,8 +168,14 @@
       </div>
 
       <div class="sanitization-buttons">
-        <button @click="calculatePreview" class="btn-preview-action">
-          {{ showPreview ? '↻ Refresh' : '👁 Preview' }}
+        <button
+          @click="calculatePreview"
+          class="btn-preview-action"
+          :disabled="loadingPreview"
+          :class="{ 'is-loading': loadingPreview }"
+        >
+          <span v-if="loadingPreview" class="button-spinner"></span>
+          {{ loadingPreview ? 'Calculating...' : (showPreview ? '↻ Refresh' : '👁 Preview') }}
         </button>
         <button
           @click="applySanitization"
@@ -525,6 +531,7 @@ const criteria = ref({
 const showPreview = ref(false);
 const previewData = ref(null);
 const loading = ref(false);
+const loadingPreview = ref(false);
 const error = ref(null);
 
 // Duplicates state
@@ -600,7 +607,7 @@ const previewHasNoImpact = computed(() => {
 });
 
 async function calculatePreview() {
-  loading.value = true;
+  loadingPreview.value = true;
   error.value = null;
 
   try {
@@ -639,7 +646,7 @@ async function calculatePreview() {
   } catch (err) {
     error.value = err.message;
   } finally {
-    loading.value = false;
+    loadingPreview.value = false;
   }
 }
 
@@ -1433,11 +1440,43 @@ async function saveToMemory(summarizationResult) {
   font-size: 0.85rem;
   font-weight: 500;
   transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.btn-preview-action:hover {
+.btn-preview-action:hover:not(:disabled) {
   background: #f1f5f9;
   border-color: #94a3b8;
+}
+
+.btn-preview-action:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  border-color: #cbd5e1;
+}
+
+.btn-preview-action.is-loading {
+  color: #667eea;
+  border-color: #667eea;
+  background: #f0f4ff;
+}
+
+/* Spinner animation */
+.button-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #667eea;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .btn-apply-action {
