@@ -23,6 +23,7 @@ import {
   acquireSessionLock,
   OperationType
 } from './memory-lock.js';
+import { readJsonlContent } from '../utils/streaming-jsonl.js';
 
 // Re-export for use by routes
 export { TIER_PRESETS, COMPACTION_RATIOS };
@@ -649,8 +650,8 @@ export async function getVersionContent(projectId, sessionId, versionId, format 
   // Handle original pseudo-version
   if (versionId === 'original') {
     if (format === 'jsonl') {
-      // Return original session content
-      const content = await fs.readFile(session.originalFile, 'utf-8');
+      // Return original session content (use streaming for large files)
+      const content = await readJsonlContent(session.originalFile);
       return {
         content,
         contentType: 'application/x-ndjson',
@@ -690,7 +691,10 @@ export async function getVersionContent(projectId, sessionId, versionId, format 
     throw error;
   }
 
-  const content = await fs.readFile(filePath, 'utf-8');
+  // Use streaming for large JSONL files, direct read for markdown
+  const content = format === 'jsonl'
+    ? await readJsonlContent(filePath)
+    : await fs.readFile(filePath, 'utf-8');
   const contentType = format === 'jsonl' ? 'application/x-ndjson' : 'text/markdown';
 
   return {

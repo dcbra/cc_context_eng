@@ -2,6 +2,13 @@ import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
 import { messagesToJsonl } from './sanitizer.js';
+import {
+  readJsonlAsArray,
+  readJsonlAsLines,
+  verifyJsonlIntegrity,
+  readJsonlContent,
+  compareJsonlFiles
+} from '../utils/streaming-jsonl.js';
 
 const BACKUPS_DIR = path.join(path.dirname(import.meta.url.replace('file://', '')), '../../backups');
 const MAX_VERSIONS = 10;
@@ -134,16 +141,10 @@ export async function restoreBackup(sessionPath, backupDir, version) {
     throw new Error(`Backup version ${version} not found`);
   }
 
-  // Validate backup integrity
-  const content = await fs.readFile(backupPath, 'utf-8');
-  const lines = content.split('\n').filter(l => l.trim());
-
-  for (const line of lines) {
-    try {
-      JSON.parse(line);
-    } catch (e) {
-      throw new Error(`Backup file is corrupted: ${e.message}`);
-    }
+  // Validate backup integrity using streaming (handles large files)
+  const integrity = await verifyJsonlIntegrity(backupPath);
+  if (!integrity.valid) {
+    throw new Error(`Backup file is corrupted: ${integrity.errors[0]}`);
   }
 
   // Create temporary file for atomic write
@@ -157,7 +158,7 @@ export async function restoreBackup(sessionPath, backupDir, version) {
     success: true,
     restoredVersion: version,
     timestamp: new Date().toISOString(),
-    messageCount: lines.length
+    messageCount: integrity.lineCount
   };
 }
 
@@ -204,7 +205,8 @@ export async function exportBackupAsJsonl(backupDir, version) {
     throw new Error(`Backup version ${version} not found`);
   }
 
-  return await fs.readFile(backupPath, 'utf-8');
+  // Use streaming for large files to avoid ERR_STRING_TOO_LONG
+  return await readJsonlContent(backupPath);
 }
 
 /**
@@ -218,27 +220,11 @@ export async function compareBackups(backupDir, version1, version2) {
     throw new Error('One or both backup versions not found');
   }
 
-  const content1 = await fs.readFile(path1, 'utf-8');
-  const content2 = await fs.readFile(path2, 'utf-8');
-
-  const lines1 = content1.split('\n').filter(l => l.trim());
-  const lines2 = content2.split('\n').filter(l => l.trim());
-
-  const messages1 = lines1.map(l => {
-    try {
-      return JSON.parse(l);
-    } catch {
-      return null;
-    }
-  }).filter(Boolean);
-
-  const messages2 = lines2.map(l => {
-    try {
-      return JSON.parse(l);
-    } catch {
-      return null;
-    }
-  }).filter(Boolean);
+  // Use streaming for large files to avoid ERR_STRING_TOO_LONG
+  const [messages1, messages2] = await Promise.all([
+    readJsonlAsArray(path1),
+    readJsonlAsArray(path2)
+  ]);
 
   // Calculate differences
   const uuids1 = new Set(messages1.map(m => m.uuid));
@@ -269,35 +255,6 @@ export async function compareBackups(backupDir, version1, version2) {
 }
 
 /**
- * Verify backup integrity
+ * Verify backup integrity (wrapper around streaming utility)
  */
-export async function verifyBackupIntegrity(backupPath) {
-  const content = await fs.readFile(backupPath, 'utf-8');
-  const lines = content.split('\n').filter(l => l.trim());
-
-  let errors = [];
-  let warnings = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    try {
-      const record = JSON.parse(lines[i]);
-
-      // Basic validation
-      if (!record.uuid) {
-        errors.push(`Line ${i + 1}: Missing uuid`);
-      }
-      if (!record.type) {
-        errors.push(`Line ${i + 1}: Missing type`);
-      }
-    } catch (e) {
-      errors.push(`Line ${i + 1}: Invalid JSON - ${e.message}`);
-    }
-  }
-
-  return {
-    valid: errors.length === 0,
-    messageCount: lines.length,
-    errors,
-    warnings
-  };
-}
+export { verifyJsonlIntegrity as verifyBackupIntegrity } from '../utils/streaming-jsonl.js';

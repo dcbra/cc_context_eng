@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
+import { countMessages } from '../utils/streaming-jsonl.js';
 
 const router = express.Router();
 
@@ -110,9 +111,8 @@ async function listSessions(projectPath, projectId) {
       const stats = await fs.stat(filePath);
       const fileSize = stats.size;
 
-      // Count actual messages (user, assistant, system records only)
-      const content = await fs.readFile(filePath, 'utf-8');
-      const messageCount = (content.match(/"type":"(user|assistant|system)"/g) || []).length;
+      // Count actual messages using streaming (handles large files)
+      const messageCount = await countMessages(filePath);
 
       // Determine if this is a main session or subagent
       const isSubagent = file.startsWith('agent-');
@@ -148,9 +148,8 @@ async function listSessions(projectPath, projectId) {
             const stats = await fs.stat(filePath);
             const fileSize = stats.size;
 
-            // Count actual messages (user, assistant, system records only)
-            const content = await fs.readFile(filePath, 'utf-8');
-            const messageCount = (content.match(/"type":"(user|assistant|system)"/g) || []).length;
+            // Count actual messages using streaming (handles large files)
+            const messageCount = await countMessages(filePath);
 
             const sessionId = subagentFile.replace('.jsonl', '');
 

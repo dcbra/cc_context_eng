@@ -18,6 +18,7 @@ import {
   getVersionContent
 } from './memory-versions.js';
 import { extractTextContent } from './summarizer.js';
+import { readJsonlAsArray, readJsonlContent } from '../utils/streaming-jsonl.js';
 
 // ============================================
 // Task 4.1: Version Selection Algorithm
@@ -501,17 +502,11 @@ async function generateComposedOutput(projectId, name, components, manifest, for
       if (compression) {
         const jsonlPath = path.join(versionsDir, `${compression.file}.jsonl`);
         if (await fs.pathExists(jsonlPath)) {
-          const jsonlContent = await fs.readFile(jsonlPath, 'utf-8');
-          const lines = jsonlContent.split('\n').filter(l => l.trim());
-
-          for (const line of lines) {
-            try {
-              const record = JSON.parse(line);
-              if (record.type === 'user' || record.type === 'assistant') {
-                messages.push(record);
-              }
-            } catch (e) {
-              // Skip invalid lines
+          // Use streaming for large files to avoid ERR_STRING_TOO_LONG
+          const records = await readJsonlAsArray(jsonlPath);
+          for (const record of records) {
+            if (record.type === 'user' || record.type === 'assistant') {
+              messages.push(record);
             }
           }
         }
@@ -928,7 +923,10 @@ export async function getCompositionContent(projectId, compositionId, format = '
     throw error;
   }
 
-  const content = await fs.readFile(filePath, 'utf-8');
+  // Use streaming for JSONL files to handle large files
+  const content = format === 'jsonl'
+    ? await readJsonlContent(filePath)
+    : await fs.readFile(filePath, 'utf-8');
 
   return {
     content,

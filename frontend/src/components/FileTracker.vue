@@ -69,7 +69,7 @@
 </template>
 
 <script setup>
-import { defineProps, ref, computed, defineEmits } from 'vue';
+import { defineProps, ref, computed } from 'vue';
 import { useSelectionStore } from '../stores/selection.js';
 
 const props = defineProps({
