@@ -347,7 +347,6 @@ Examples:
   "createdAt": "2026-01-20T10:00:00Z",
 
   "storage": {
-    "maxCacheSize": "1GB",
     "compressionRetention": "all"
   },
 
@@ -1340,7 +1339,6 @@ Response: {
 {
   "version": "1.0.0",
   "storage": {
-    "maxCacheSize": "1GB",
     "compressionRetention": "all"
   },
   "defaults": {

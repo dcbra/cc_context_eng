@@ -17,23 +17,6 @@
       </div>
 
       <form v-else @submit.prevent="saveSettings" class="settings-form">
-        <!-- Storage Section -->
-        <div class="settings-section">
-          <h4>Storage</h4>
-          <div class="setting-row">
-            <label class="setting-label">Max Cache Size</label>
-            <select v-model="settings.storage.maxCacheSize" class="setting-select">
-              <option value="256MB">256 MB</option>
-              <option value="512MB">512 MB</option>
-              <option value="1GB">1 GB</option>
-              <option value="2GB">2 GB</option>
-              <option value="5GB">5 GB</option>
-              <option value="10GB">10 GB</option>
-              <option value="unlimited">Unlimited</option>
-            </select>
-          </div>
-        </div>
-
         <!-- Defaults Section -->
         <div class="settings-section">
           <h4>Defaults</h4>
@@ -175,9 +158,6 @@ const error = ref(null);
 
 // Settings with defaults
 const settings = reactive({
-  storage: {
-    maxCacheSize: '512MB'
-  },
   defaults: {
     compressionPreset: 'standard',
     keepitDecayEnabled: true,
@@ -200,9 +180,6 @@ const settings = reactive({
 });
 
 const defaultSettings = {
-  storage: {
-    maxCacheSize: '512MB'
-  },
   defaults: {
     compressionPreset: 'standard',
     keepitDecayEnabled: true,
@@ -237,9 +214,6 @@ async function loadSettings() {
 
     // Merge loaded config with defaults
     if (config) {
-      if (config.storage) {
-        Object.assign(settings.storage, config.storage);
-      }
       if (config.defaults) {
         Object.assign(settings.defaults, config.defaults);
       }
@@ -278,7 +252,6 @@ async function saveSettings() {
 function resetToDefaults() {
   if (!confirm('Reset all settings to defaults?')) return;
 
-  Object.assign(settings.storage, defaultSettings.storage);
   Object.assign(settings.defaults, defaultSettings.defaults);
   settings.keepitDecay.maxSessionDistance = defaultSettings.keepitDecay.maxSessionDistance;
   Object.assign(settings.keepitDecay.compressionBase, defaultSettings.keepitDecay.compressionBase);

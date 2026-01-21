@@ -10,7 +10,6 @@ const DEFAULT_CONFIG = {
   version: "1.0.0",
   createdAt: null, // Set on first creation
   storage: {
-    maxCacheSize: "1GB",
     compressionRetention: "all"
   },
   defaults: {
@@ -199,9 +198,6 @@ export function validateConfig(config) {
 
   // Storage validation
   if (config.storage) {
-    if (config.storage.maxCacheSize !== undefined && typeof config.storage.maxCacheSize !== 'string') {
-      errors.push('storage.maxCacheSize must be a string (e.g., "1GB")');
-    }
     if (config.storage.compressionRetention !== undefined) {
       const validRetention = ['all', 'latest', 'none'];
       if (!validRetention.includes(config.storage.compressionRetention)) {

@@ -83,7 +83,6 @@ const DEFAULT_CONFIG = {
   version: "1.0.0",
   createdAt: null, // Set on first creation
   storage: {
-    maxCacheSize: "1GB",
     compressionRetention: "all"
   },
   defaults: {
@@ -3173,19 +3172,6 @@ async function createCompressionVersion(sessionId, settings) {
   <div class="dialog-overlay" @click.self="$emit('close')">
     <div class="memory-settings">
       <h3>Memory System Settings</h3>
-
-      <div class="settings-section">
-        <h4>Storage</h4>
-        <div class="setting-row">
-          <label>Max Cache Size:</label>
-          <select v-model="settings.storage.maxCacheSize">
-            <option value="256MB">256 MB</option>
-            <option value="512MB">512 MB</option>
-            <option value="1GB">1 GB</option>
-            <option value="2GB">2 GB</option>
-          </select>
-        </div>
-      </div>
 
       <div class="settings-section">
         <h4>Defaults</h4>
