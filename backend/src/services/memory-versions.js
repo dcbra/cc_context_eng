@@ -778,9 +778,9 @@ export async function isVersionUsedInComposition(projectId, sessionId, versionId
 export async function deleteCompressionVersion(projectId, sessionId, versionId, options = {}) {
   const { force = false } = options;
 
-  // Can't delete original
+  // Can't delete original - it's protected as the baseline for compressions
   if (versionId === 'original') {
-    const error = new Error('Cannot delete the original session version');
+    const error = new Error('The original version is protected. To remove this session entirely, use "Unregister Session" instead.');
     error.code = 'CANNOT_DELETE_ORIGINAL';
     error.status = 400;
     throw error;

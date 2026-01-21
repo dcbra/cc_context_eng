@@ -291,7 +291,7 @@ export class InsufficientMessagesError extends MemoryError {
 export class CannotDeleteOriginalError extends MemoryError {
   constructor(sessionId) {
     super(
-      'Cannot delete the original session version',
+      'The original version is protected. To remove this session entirely, use "Unregister Session" instead.',
       'CANNOT_DELETE_ORIGINAL',
       400,
       { sessionId }
