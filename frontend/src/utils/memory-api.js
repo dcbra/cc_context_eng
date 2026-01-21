@@ -885,3 +885,73 @@ export async function importProject(projectId, file, options = {}) {
   });
   return handleResponse(response, 'Failed to import project');
 }
+
+// ============================================
+// Delta Compression Endpoints
+// ============================================
+
+/**
+ * Get delta status for a session
+ * Shows new messages since the last compression
+ * @param {string} projectId - The project ID
+ * @param {string} sessionId - The session ID
+ * @returns {Promise<{sessionId: string, hasDelta: boolean, deltaMessageCount: number, deltaRange: object|null, currentPartCount: number, nextPartNumber: number}>}
+ */
+export async function getDeltaStatus(projectId, sessionId) {
+  const response = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/delta`
+  );
+  return handleResponse(response, 'Failed to get delta status');
+}
+
+/**
+ * Create delta compression (compress new messages only)
+ * @param {string} projectId - The project ID
+ * @param {string} sessionId - The session ID
+ * @param {object} settings - Compression settings
+ * @returns {Promise<object>}
+ */
+export async function createDeltaCompression(projectId, sessionId, settings) {
+  const response = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/delta`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    }
+  );
+  return handleResponse(response, 'Failed to create delta compression');
+}
+
+/**
+ * Re-compress an existing part at a different compression level
+ * @param {string} projectId - The project ID
+ * @param {string} sessionId - The session ID
+ * @param {number} partNumber - The part number to re-compress
+ * @param {object} settings - New compression settings
+ * @returns {Promise<object>}
+ */
+export async function recompressPart(projectId, sessionId, partNumber, settings) {
+  const response = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/parts/${partNumber}/recompress`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    }
+  );
+  return handleResponse(response, 'Failed to re-compress part');
+}
+
+/**
+ * List all parts for a session (organized by part number)
+ * @param {string} projectId - The project ID
+ * @param {string} sessionId - The session ID
+ * @returns {Promise<{sessionId: string, totalParts: number, parts: Array}>}
+ */
+export async function listParts(projectId, sessionId) {
+  const response = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/parts`
+  );
+  return handleResponse(response, 'Failed to list session parts');
+}

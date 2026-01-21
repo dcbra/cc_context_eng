@@ -42,6 +42,33 @@
       </div>
     </div>
 
+    <!-- Delta Status Section -->
+    <div v-if="deltaStatus" class="delta-section">
+      <div class="section-header">
+        <h4>New Messages</h4>
+        <span v-if="deltaStatus.hasDelta" class="delta-badge">
+          {{ deltaStatus.deltaMessageCount }} new
+        </span>
+      </div>
+
+      <div v-if="deltaStatus.hasDelta" class="delta-info">
+        <p class="delta-message">
+          {{ deltaStatus.deltaMessageCount }} messages have been added since the last compression.
+        </p>
+        <div class="delta-actions">
+          <button @click="$emit('create-delta-compression')" class="btn-primary-small">
+            Compress New Messages
+          </button>
+          <span class="action-hint">Creates Part {{ deltaStatus.nextPartNumber }}</span>
+        </div>
+      </div>
+
+      <div v-else class="delta-synced">
+        <span class="synced-icon">&#10003;</span>
+        <span>All messages are compressed ({{ deltaStatus.currentPartCount }} part{{ deltaStatus.currentPartCount !== 1 ? 's' : '' }})</span>
+      </div>
+    </div>
+
     <!-- Compressions Section -->
     <div class="compressions-section">
       <div class="section-header">
@@ -68,8 +95,10 @@
       <VersionList
         v-else
         :versions="versions"
+        :parts="parts"
         @view="handleViewVersion"
         @delete="handleDeleteVersion"
+        @recompress-part="handleRecompressPart"
       />
     </div>
 
@@ -158,18 +187,28 @@ const props = defineProps({
   loading: {
     type: Object,
     default: () => ({})
+  },
+  deltaStatus: {
+    type: Object,
+    default: null
+  },
+  parts: {
+    type: Array,
+    default: () => []
   }
 });
 
 const emit = defineEmits([
   'create-version',
+  'create-delta-compression',
   'view-version',
   'delete-version',
   'compare-versions',
   'view-original',
   'refresh',
   'back',
-  'unregister'
+  'unregister',
+  'recompress-part'
 ]);
 
 const showUnregisterDialog = ref(false);
@@ -204,6 +243,10 @@ function handleViewVersion(version) {
 
 function handleDeleteVersion(version) {
   emit('delete-version', version);
+}
+
+function handleRecompressPart(partNumber) {
+  emit('recompress-part', partNumber);
 }
 
 async function handleUnregister() {
@@ -340,6 +383,67 @@ async function handleUnregister() {
   border-radius: 3px;
   font-size: 0.8rem;
   font-weight: 500;
+}
+
+.delta-section {
+  margin-bottom: 1.5rem;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.delta-badge {
+  padding: 0.25rem 0.5rem;
+  background: #f59e0b;
+  color: white;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.delta-info {
+  margin-top: 0.5rem;
+}
+
+.delta-message {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.85rem;
+  color: #92400e;
+}
+
+.delta-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.action-hint {
+  font-size: 0.75rem;
+  color: #b45309;
+  font-style: italic;
+}
+
+.delta-synced {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #166534;
+}
+
+.synced-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: #22c55e;
+  color: white;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 600;
 }
 
 .compressions-section,

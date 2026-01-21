@@ -35,6 +35,10 @@ export const useMemoryStore = defineStore('memory', () => {
   // Sync state - tracks which sessions have new messages available
   const syncStatus = ref({}); // Map of sessionId -> { hasNewMessages, newCount, lastSynced }
 
+  // Delta compression state
+  const deltaStatus = ref(null); // { hasDelta, deltaMessageCount, deltaRange, currentPartCount, nextPartNumber }
+  const sessionParts = ref([]); // Array of parts with their versions
+
   // Compression version state
   const versions = ref([]);
   const currentVersion = ref(null);
@@ -71,7 +75,9 @@ export const useMemoryStore = defineStore('memory', () => {
     stats: false,
     export: false,
     import: false,
-    sync: false
+    sync: false,
+    delta: false,
+    parts: false
   });
 
   // Error state
@@ -105,6 +111,9 @@ export const useMemoryStore = defineStore('memory', () => {
   const isLoading = computed(() => Object.values(loading.value).some(v => v));
 
   const isCompressionInProgress = computed(() => loading.value.compression);
+
+  const hasDelta = computed(() => deltaStatus.value?.hasDelta || false);
+  const deltaMessageCount = computed(() => deltaStatus.value?.deltaMessageCount || 0);
 
   // ============================================
   // Internal Helpers
@@ -626,6 +635,114 @@ export const useMemoryStore = defineStore('memory', () => {
   }
 
   // ============================================
+  // Delta Compression Actions
+  // ============================================
+
+  /**
+   * Check delta status for a session
+   * Returns info about new messages since last compression
+   */
+  async function checkDeltaStatus(projectId, sessionId) {
+    loading.value.delta = true;
+    clearError();
+    try {
+      deltaStatus.value = await memoryApi.getDeltaStatus(projectId, sessionId);
+      return deltaStatus.value;
+    } catch (err) {
+      setError(err);
+      throw err;
+    } finally {
+      loading.value.delta = false;
+    }
+  }
+
+  /**
+   * Create a delta compression (compress new messages only)
+   */
+  async function compressDelta(projectId, sessionId, settings) {
+    loading.value.compression = true;
+    clearError();
+    try {
+      const version = await memoryApi.createDeltaCompression(projectId, sessionId, settings);
+
+      // Add to local versions list
+      versions.value.push(version);
+
+      // Update session compression count
+      const session = sessions.value.find(s => s.sessionId === sessionId);
+      if (session) {
+        session.compressionCount = (session.compressionCount || 0) + 1;
+      }
+
+      // Refresh delta status
+      await checkDeltaStatus(projectId, sessionId);
+
+      return version;
+    } catch (err) {
+      setError(err);
+      throw err;
+    } finally {
+      loading.value.compression = false;
+    }
+  }
+
+  /**
+   * Re-compress an existing part at a different compression level
+   */
+  async function recompressPart(projectId, sessionId, partNumber, settings) {
+    loading.value.compression = true;
+    clearError();
+    try {
+      const version = await memoryApi.recompressPart(projectId, sessionId, partNumber, settings);
+
+      // Add to local versions list
+      versions.value.push(version);
+
+      // Update session compression count
+      const session = sessions.value.find(s => s.sessionId === sessionId);
+      if (session) {
+        session.compressionCount = (session.compressionCount || 0) + 1;
+      }
+
+      // Refresh parts list
+      await loadSessionParts(projectId, sessionId);
+
+      return version;
+    } catch (err) {
+      setError(err);
+      throw err;
+    } finally {
+      loading.value.compression = false;
+    }
+  }
+
+  /**
+   * Load all parts for a session
+   */
+  async function loadSessionParts(projectId, sessionId) {
+    loading.value.parts = true;
+    clearError();
+    try {
+      const result = await memoryApi.listParts(projectId, sessionId);
+      sessionParts.value = result.parts || [];
+      return sessionParts.value;
+    } catch (err) {
+      setError(err);
+      throw err;
+    } finally {
+      loading.value.parts = false;
+    }
+  }
+
+  /**
+   * Clear delta status
+   */
+  function clearDeltaStatus() {
+    deltaStatus.value = null;
+    sessionParts.value = [];
+  }
+
+  // ============================================
   // Compression Version Actions
   // ============================================
 
@@ -1140,6 +1257,8 @@ export const useMemoryStore = defineStore('memory', () => {
     currentSession.value = null;
     unregisteredSessions.value = [];
     syncStatus.value = {};
+    deltaStatus.value = null;
+    sessionParts.value = [];
     versions.value = [];
     currentVersion.value = null;
     compressionPresets.value = null;
@@ -1174,6 +1293,8 @@ export const useMemoryStore = defineStore('memory', () => {
     currentSession,
     unregisteredSessions,
     syncStatus,
+    deltaStatus,
+    sessionParts,
     versions,
     currentVersion,
     compressionPresets,
@@ -1202,6 +1323,8 @@ export const useMemoryStore = defineStore('memory', () => {
     currentSessionKeepits,
     isLoading,
     isCompressionInProgress,
+    hasDelta,
+    deltaMessageCount,
 
     // System actions
     checkStatus,
@@ -1232,6 +1355,13 @@ export const useMemoryStore = defineStore('memory', () => {
     checkAllSyncStatus,
     syncSession,
     clearSyncStatus,
+
+    // Delta compression actions
+    checkDeltaStatus,
+    compressDelta,
+    recompressPart,
+    loadSessionParts,
+    clearDeltaStatus,
 
     // Version actions
     loadCompressionPresets,

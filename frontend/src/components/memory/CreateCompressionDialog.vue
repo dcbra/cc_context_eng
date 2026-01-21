@@ -13,6 +13,26 @@
         <span class="info-value">{{ originalMessages }} messages</span>
       </div>
 
+      <!-- Compression Mode Toggle (Full vs Delta) -->
+      <div class="compression-mode-toggle">
+        <label :class="{ active: compressionMode === 'full' }">
+          <input type="radio" value="full" v-model="compressionMode" />
+          <span class="mode-title">Full Session</span>
+          <span class="mode-desc">Compress all messages</span>
+        </label>
+        <label :class="{ active: compressionMode === 'delta', disabled: !deltaAvailable }" :disabled="!deltaAvailable">
+          <input type="radio" value="delta" v-model="compressionMode" :disabled="!deltaAvailable" />
+          <span class="mode-title">New Messages Only</span>
+          <span class="mode-desc">{{ deltaAvailable ? deltaCount + ' messages' : 'No new messages' }}</span>
+        </label>
+      </div>
+
+      <!-- Delta mode info -->
+      <div v-if="compressionMode === 'delta'" class="delta-info-box">
+        <p>This will create <strong>Part {{ nextPartNumber }}</strong> containing only the
+          {{ deltaCount }} new messages since the last compression.</p>
+      </div>
+
       <!-- Mode Toggle -->
       <div class="mode-toggle">
         <label :class="{ active: !useTiers }">
@@ -225,12 +245,22 @@ const props = defineProps({
   originalMessages: {
     type: Number,
     default: 0
+  },
+  initialDeltaMode: {
+    type: Boolean,
+    default: false
   }
 });
 
 const emit = defineEmits(['close', 'created']);
 
 const memoryStore = useMemoryStore();
+
+// Compression mode state (full vs delta)
+const compressionMode = ref(props.initialDeltaMode ? 'delta' : 'full');
+const deltaAvailable = ref(false);
+const deltaCount = ref(0);
+const nextPartNumber = ref(1);
 
 // Settings state
 const useTiers = ref(false);
@@ -276,6 +306,21 @@ onMounted(async () => {
     presets.value = memoryStore.compressionPresets;
   } catch (err) {
     console.warn('Failed to load presets:', err);
+  }
+
+  // Load delta status
+  try {
+    const delta = await memoryStore.checkDeltaStatus(props.projectId, props.sessionId);
+    deltaAvailable.value = delta.hasDelta;
+    deltaCount.value = delta.deltaMessageCount;
+    nextPartNumber.value = delta.nextPartNumber;
+
+    // If initial delta mode requested and delta is available, keep it
+    if (props.initialDeltaMode && delta.hasDelta) {
+      compressionMode.value = 'delta';
+    }
+  } catch (err) {
+    console.warn('Failed to load delta status:', err);
   }
 });
 
@@ -325,11 +370,24 @@ async function createCompression() {
 
   try {
     const compressionSettings = buildSettings();
-    const version = await memoryStore.createCompressionVersion(
-      props.projectId,
-      props.sessionId,
-      compressionSettings
-    );
+    let version;
+
+    if (compressionMode.value === 'delta') {
+      // Use delta compression API
+      version = await memoryStore.compressDelta(
+        props.projectId,
+        props.sessionId,
+        compressionSettings
+      );
+    } else {
+      // Use full session compression
+      version = await memoryStore.createCompressionVersion(
+        props.projectId,
+        props.sessionId,
+        compressionSettings
+      );
+    }
+
     emit('created', version);
   } catch (err) {
     error.value = err.message || 'Failed to create compression';
@@ -467,6 +525,72 @@ function updateCustomTier(index, field, value) {
 
 .info-separator {
   color: #ccc;
+}
+
+.compression-mode-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 1.5rem 0 1.5rem;
+}
+
+.compression-mode-toggle label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.compression-mode-toggle label input {
+  display: none;
+}
+
+.compression-mode-toggle label:hover:not(.disabled) {
+  border-color: #cbd5e0;
+}
+
+.compression-mode-toggle label.active {
+  border-color: #667eea;
+  background: #f0f4ff;
+}
+
+.compression-mode-toggle label.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.compression-mode-toggle .mode-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.compression-mode-toggle .mode-desc {
+  font-size: 0.75rem;
+  color: #666;
+  margin-top: 0.25rem;
+}
+
+.compression-mode-toggle label.active .mode-title {
+  color: #667eea;
+}
+
+.delta-info-box {
+  margin: 0.75rem 1.5rem;
+  padding: 0.75rem;
+  background: #f0f4ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+}
+
+.delta-info-box p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #4338ca;
 }
 
 .mode-toggle {
