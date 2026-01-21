@@ -398,7 +398,8 @@ export async function summarizeAndIntegrate(parsed, messageUuids, options = {}) 
     compactionRatio = 10,
     aggressiveness = 'moderate',
     model = 'opus',
-    removeNonConversation = true  // Auto-cleanup tools/thinking from range
+    removeNonConversation = true,  // Auto-cleanup tools/thinking from range
+    skipFirstMessages = 0  // Skip first N messages from summarization (keep as-is)
   } = options;
 
   // Get messages in the specified range
@@ -410,12 +411,22 @@ export async function summarizeAndIntegrate(parsed, messageUuids, options = {}) 
   }
 
   // Filter to conversation messages only and sort by timestamp
-  const conversationMessages = targetMessages
+  const allConversationMessages = targetMessages
     .filter(m => (m.type === 'user' || m.type === 'assistant') && extractTextContent(m).trim())
     .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
 
+  // Split: messages to skip (keep as-is) vs messages to summarize
+  const skippedMessages = allConversationMessages.slice(0, skipFirstMessages);
+  const conversationMessages = allConversationMessages.slice(skipFirstMessages);
+
+  if (skipFirstMessages > 0) {
+    console.log(`[Summarizer] Skipping first ${skipFirstMessages} messages from summarization`);
+    console.log(`[Summarizer]   - Kept as-is: ${skippedMessages.length} messages`);
+    console.log(`[Summarizer]   - To summarize: ${conversationMessages.length} messages`);
+  }
+
   if (conversationMessages.length < 2) {
-    throw new Error('Need at least 2 user/assistant messages to summarize');
+    throw new Error('Need at least 2 user/assistant messages to summarize (after skipping)');
   }
 
   // Get summaries from Claude
@@ -429,12 +440,15 @@ export async function summarizeAndIntegrate(parsed, messageUuids, options = {}) 
   // Determine which messages to remove:
   // - Always remove conversation messages (they're being summarized)
   // - Optionally remove non-conversation messages in range (tools, thinking)
+  // - NEVER remove skipped messages (they're kept as-is)
+  const skippedUuids = new Set(skippedMessages.map(m => m.uuid));
+
   let allRemovedUuids;
   if (removeNonConversation) {
-    // Remove ALL messages in the selected range (tools, thinking, etc.)
-    allRemovedUuids = new Set(messageUuids);
+    // Remove ALL messages in the selected range EXCEPT skipped messages
+    allRemovedUuids = new Set([...messageUuids].filter(uuid => !skippedUuids.has(uuid)));
   } else {
-    // Only remove conversation messages that were summarized
+    // Only remove conversation messages that were summarized (not skipped)
     allRemovedUuids = new Set(conversationMessages.map(m => m.uuid));
   }
 
@@ -667,7 +681,8 @@ export async function summarizeAndIntegrateWithTiers(parsed, messageUuids, optio
     tiers = DEFAULT_TIERS,
     tierPreset = null,
     model = 'opus',
-    removeNonConversation = true  // Auto-cleanup tools/thinking from range
+    removeNonConversation = true,  // Auto-cleanup tools/thinking from range
+    skipFirstMessages = 0  // Skip first N messages from summarization (keep as-is)
   } = options;
 
   // Get messages in the specified range
@@ -679,12 +694,22 @@ export async function summarizeAndIntegrateWithTiers(parsed, messageUuids, optio
   }
 
   // Filter to conversation messages only and sort by timestamp
-  const conversationMessages = targetMessages
+  const allConversationMessages = targetMessages
     .filter(m => (m.type === 'user' || m.type === 'assistant') && extractTextContent(m).trim())
     .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
 
+  // Split: messages to skip (keep as-is) vs messages to summarize
+  const skippedMessages = allConversationMessages.slice(0, skipFirstMessages);
+  const conversationMessages = allConversationMessages.slice(skipFirstMessages);
+
+  if (skipFirstMessages > 0) {
+    console.log(`[Summarizer] Skipping first ${skipFirstMessages} messages from summarization`);
+    console.log(`[Summarizer]   - Kept as-is: ${skippedMessages.length} messages`);
+    console.log(`[Summarizer]   - To summarize: ${conversationMessages.length} messages`);
+  }
+
   if (conversationMessages.length < 2) {
-    throw new Error('Need at least 2 user/assistant messages to summarize');
+    throw new Error('Need at least 2 user/assistant messages to summarize (after skipping)');
   }
 
   // Get tiered summaries (messages now in chronological order)
@@ -697,12 +722,15 @@ export async function summarizeAndIntegrateWithTiers(parsed, messageUuids, optio
   // Determine which messages to remove:
   // - Always remove conversation messages (they're being summarized)
   // - Optionally remove non-conversation messages in range (tools, thinking)
+  // - NEVER remove skipped messages (they're kept as-is)
+  const skippedUuids = new Set(skippedMessages.map(m => m.uuid));
+
   let allRemovedUuids;
   if (removeNonConversation) {
-    // Remove ALL messages in the selected range (tools, thinking, etc.)
-    allRemovedUuids = new Set(messageUuids);
+    // Remove ALL messages in the selected range EXCEPT skipped messages
+    allRemovedUuids = new Set([...messageUuids].filter(uuid => !skippedUuids.has(uuid)));
   } else {
-    // Only remove conversation messages that were summarized
+    // Only remove conversation messages that were summarized (not skipped)
     allRemovedUuids = new Set(conversationMessages.map(m => m.uuid));
   }
 

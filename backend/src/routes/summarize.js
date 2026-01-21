@@ -169,6 +169,8 @@ router.post('/:sessionId/apply', async (req, res, next) => {
       tiers = null,
       // Auto-cleanup option
       removeNonConversation = true,  // Remove tools/thinking from range
+      // Skip first N messages option
+      skipFirstMessages = 0,  // Keep first N messages as-is (for pasted context)
       // Export options
       outputMode = 'modify',  // 'modify' | 'export-jsonl' | 'export-markdown'
       exportFilename = null   // Optional custom filename for export
@@ -182,6 +184,7 @@ router.post('/:sessionId/apply', async (req, res, next) => {
     console.log(`  - useTiers: ${useTiers}, tierPreset: ${tierPreset}`);
     console.log(`  - compactionRatio: ${compactionRatio}, aggressiveness: ${aggressiveness}`);
     console.log(`  - model: ${model}, outputMode: ${outputMode}`);
+    console.log(`  - skipFirstMessages: ${skipFirstMessages}`);
 
     if (!sessionId || !projectId) {
       return res.status(400).json({ error: 'Missing sessionId or projectId' });
@@ -228,7 +231,8 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         tiers: effectiveTiers,
         tierPreset,
         model,
-        removeNonConversation
+        removeNonConversation,
+        skipFirstMessages
       });
     } else {
       // Use uniform compaction
@@ -237,7 +241,8 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         compactionRatio,
         aggressiveness,
         model,
-        removeNonConversation
+        removeNonConversation,
+        skipFirstMessages
       });
     }
 

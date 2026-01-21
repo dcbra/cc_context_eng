@@ -254,6 +254,21 @@
           </label>
         </div>
 
+        <!-- Skip First N Messages Option -->
+        <div class="skip-first-option">
+          <label class="option-label">
+            <span class="option-name">Skip first messages</span>
+            <input
+              type="number"
+              v-model.number="summarizationOptions.skipFirstMessages"
+              min="0"
+              max="100"
+              class="option-input-number"
+            />
+            <span class="option-desc">Keep first N messages as-is (for pasted context from previous sessions)</span>
+          </label>
+        </div>
+
         <!-- Uniform Compaction Options -->
         <div v-if="!summarizationOptions.useTiers" class="summarization-options">
           <div class="option-row">
@@ -518,6 +533,8 @@ const summarizationOptions = ref({
     { endPercent: 90, compactionRatio: 5, aggressiveness: 'moderate' },
     { endPercent: 100, compactionRatio: 3, aggressiveness: 'minimal' }
   ],
+  // Skip first N messages (for pasted context from previous sessions)
+  skipFirstMessages: 0,
   // Output options
   outputMode: 'modify'  // 'modify' | 'export-jsonl' | 'export-markdown'
 });
@@ -765,7 +782,8 @@ async function applySummarizationAction() {
 
     const options = {
       model: opts.model,
-      outputMode: opts.outputMode
+      outputMode: opts.outputMode,
+      skipFirstMessages: opts.skipFirstMessages || 0
     };
 
     // Add tiered or uniform options
@@ -1602,6 +1620,28 @@ onMounted(() => {
   font-size: 0.85rem;
   background: white;
   cursor: pointer;
+}
+
+.option-input-number {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  width: 60px;
+  text-align: center;
+}
+
+.option-input-number:focus {
+  outline: none;
+  border-color: #7c3aed;
+}
+
+.skip-first-option {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 4px;
 }
 
 .option-select:focus {
