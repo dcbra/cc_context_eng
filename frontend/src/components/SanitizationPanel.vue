@@ -501,7 +501,6 @@
       </div>
     </div>
 
-    <div v-if="loading" class="loading">Calculating...</div>
     <div v-if="error" class="error">{{ error }}</div>
   </div>
 </template>
