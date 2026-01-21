@@ -30,23 +30,33 @@
 
     <!-- Main content -->
     <div v-else-if="initialized" class="browser-content">
-      <!-- Breadcrumb navigation -->
-      <div class="breadcrumb">
-        <span class="breadcrumb-item" :class="{ active: !currentProject }" @click="clearSelection">
-          Projects
-        </span>
-        <template v-if="currentProject">
-          <span class="breadcrumb-separator">/</span>
-          <span class="breadcrumb-item" :class="{ active: currentProject && !currentSession }" @click="clearSession">
-            {{ currentProject.displayName || currentProject.projectId }}
+      <!-- Navigation bar with back button and breadcrumbs -->
+      <div class="navigation-bar">
+        <button
+          v-if="currentProject || currentSession"
+          @click="goBack"
+          class="btn-back-nav"
+          :title="currentSession ? 'Back to sessions' : 'Back to projects'"
+        >
+          ← Back
+        </button>
+        <div class="breadcrumb">
+          <span class="breadcrumb-item" :class="{ active: !currentProject }" @click="clearSelection">
+            Projects
           </span>
-        </template>
-        <template v-if="currentSession">
-          <span class="breadcrumb-separator">/</span>
-          <span class="breadcrumb-item active">
-            {{ currentSession.fileName || currentSession.sessionId }}
-          </span>
-        </template>
+          <template v-if="currentProject">
+            <span class="breadcrumb-separator">/</span>
+            <span class="breadcrumb-item" :class="{ active: currentProject && !currentSession }" @click="clearSession">
+              {{ currentProject.displayName || currentProject.projectId }}
+            </span>
+          </template>
+          <template v-if="currentSession">
+            <span class="breadcrumb-separator">/</span>
+            <span class="breadcrumb-item active">
+              {{ currentSession.fileName || currentSession.sessionId }}
+            </span>
+          </template>
+        </div>
       </div>
 
       <!-- Project List View -->
@@ -259,6 +269,16 @@ function clearSelection() {
 
 function clearSession() {
   memoryStore.clearCurrentSession();
+}
+
+function goBack() {
+  if (currentSession.value) {
+    // If viewing session details, go back to session list
+    clearSession();
+  } else if (currentProject.value) {
+    // If viewing session list, go back to projects
+    clearSelection();
+  }
 }
 
 function clearError() {
@@ -527,15 +547,48 @@ function formatDate(dateString) {
   overflow: hidden;
 }
 
+/* Navigation bar */
+.navigation-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.btn-back-nav {
+  padding: 0.375rem 0.75rem;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #333;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-back-nav:hover {
+  background: #f1f5f9;
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.btn-back-nav:active {
+  transform: translateY(1px);
+}
+
 /* Breadcrumb */
 .breadcrumb {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 1rem 1.5rem;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
   font-size: 0.9rem;
+  flex: 1;
+  min-width: 0;
 }
 
 .breadcrumb-item {
