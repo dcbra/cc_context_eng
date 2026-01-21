@@ -4,7 +4,26 @@
       <button class="back-btn" @click="$emit('close')">← Back to Projects</button>
       <div class="session-info">
         <h2>{{ session.fileName }}</h2>
-        <div class="meta">{{ formatSize(session.size) }} • {{ sessionData?.totalMessages || 0 }} messages</div>
+        <div class="meta">
+          {{ formatSize(session.size) }} • {{ sessionData?.totalMessages || 0 }} messages
+          <span v-if="isInMemory" class="memory-indicator" title="Session is registered in memory system">
+            [M]
+            <span v-if="versionCount > 0" class="version-count">{{ versionCount }} versions</span>
+          </span>
+        </div>
+      </div>
+      <div class="memory-actions">
+        <button
+          v-if="!isInMemory && !memoryLoading"
+          @click="addToMemory"
+          class="btn-memory"
+          :disabled="memoryLoading"
+          title="Register this session in the memory system"
+        >
+          + Add to Memory
+        </button>
+        <span v-else-if="memoryLoading" class="memory-loading">...</span>
+        <span v-if="memoryError" class="memory-error" :title="memoryError">!</span>
       </div>
       <div class="header-actions">
         <button @click="activeTab = 'messages'" :class="{ active: activeTab === 'messages' }" class="tab-btn">
@@ -185,9 +204,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useSelectionStore } from '../stores/selection.js';
+import { useMemoryStore } from '../stores/memory.js';
 import { getSession } from '../utils/api.js';
+import * as memoryApi from '../utils/memory-api.js';
 import FileTracker from './FileTracker.vue';
 import SanitizationPanel from './SanitizationPanel.vue';
 import BackupManager from './BackupManager.vue';
@@ -203,6 +224,7 @@ const props = defineProps({
 const emit = defineEmits(['close']);
 
 const selectionStore = useSelectionStore();
+const memoryStore = useMemoryStore();
 const activeTab = ref('messages');
 const sessionData = ref(null);
 const loading = ref(true);
@@ -212,6 +234,11 @@ const lastSelectedIndex = ref(null);
 const expandedImage = ref(null);
 const duplicateUuidsMap = ref({}); // Track duplicate message UUIDs for highlighting (object for reactivity)
 const sortByTimestamp = ref(true);
+
+// Memory system state
+const memoryStatus = ref(null);
+const memoryLoading = ref(false);
+const memoryError = ref(null);
 
 // Check if a message is a duplicate
 function isDuplicate(uuid) {
@@ -239,7 +266,56 @@ const displayedMessages = computed(() => {
 
 onMounted(async () => {
   await loadSession();
+  await checkMemoryStatus();
 });
+
+// Check memory registration status
+async function checkMemoryStatus() {
+  if (!props.session.projectId || !props.session.sessionId) return;
+
+  memoryLoading.value = true;
+  memoryError.value = null;
+
+  try {
+    memoryStatus.value = await memoryApi.getSessionStatus(
+      props.session.projectId,
+      props.session.sessionId
+    );
+  } catch (err) {
+    // Session might not exist in memory system yet, which is fine
+    memoryStatus.value = { registered: false };
+    if (err.status !== 404) {
+      console.warn('Failed to check memory status:', err);
+    }
+  } finally {
+    memoryLoading.value = false;
+  }
+}
+
+// Register session to memory system
+async function addToMemory() {
+  if (!props.session.projectId || !props.session.sessionId) return;
+
+  memoryLoading.value = true;
+  memoryError.value = null;
+
+  try {
+    await memoryApi.registerSession(
+      props.session.projectId,
+      props.session.sessionId
+    );
+    memoryStatus.value = { registered: true };
+  } catch (err) {
+    memoryError.value = err.message || 'Failed to add to memory';
+    console.error('Failed to register session:', err);
+  } finally {
+    memoryLoading.value = false;
+  }
+}
+
+// Computed property for memory indicator
+const isInMemory = computed(() => memoryStatus.value?.registered === true);
+const versionCount = computed(() => memoryStatus.value?.versionCount || 0);
 
 async function loadSession() {
   loading.value = true;
@@ -652,6 +728,74 @@ async function handleFilesUpdated() {
   font-size: 0.85rem;
   color: #999;
   margin-top: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.memory-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.memory-indicator .version-count {
+  font-weight: 400;
+  opacity: 0.9;
+}
+
+.memory-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-memory {
+  padding: 0.375rem 0.75rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-memory:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+.btn-memory:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.memory-loading {
+  font-size: 0.8rem;
+  color: #667eea;
+}
+
+.memory-error {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: #fed7d7;
+  color: #c53030;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: bold;
+  cursor: help;
 }
 
 .header-actions {

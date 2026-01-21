@@ -1,8 +1,12 @@
 import { spawn } from 'child_process';
+import { extractKeepitMarkers, stripKeepitMarkers } from './keepit-parser.js';
+import { shouldKeepitSurvive, previewDecay } from './keepit-decay.js';
+import { verifyKeepitPreservation, generateVerificationReport } from './keepit-verifier.js';
 
 /**
  * AI-powered conversation summarizer using Claude CLI
  * Summarizes user/assistant exchanges while preserving the "interaction soul"
+ * Now with keepit marker preservation support
  */
 
 // Output schema for structured responses
@@ -67,12 +71,83 @@ const TIER_PRESETS = {
 };
 
 /**
+ * Build keepit preservation instructions for the summarization prompt
+ */
+function buildKeepitInstructions(keepitMarkers, keepitMode) {
+  if (!keepitMarkers || keepitMarkers.length === 0) {
+    return '';
+  }
+
+  const surviving = keepitMarkers.filter(m => m.survives);
+  const summarized = keepitMarkers.filter(m => !m.survives);
+
+  if (keepitMode === 'preserve-all') {
+    // Preserve all keepit content verbatim
+    if (surviving.length === 0 && summarized.length === 0) return '';
+
+    const allMarkers = [...surviving, ...summarized];
+    return `
+## CRITICAL: Preserve ##keepit## Marked Content
+The following content has been explicitly marked for preservation and MUST be included VERBATIM in your summaries.
+Do NOT paraphrase, condense, or modify this content in any way:
+
+${allMarkers.map(m => `### PRESERVE EXACTLY (weight ${m.weight.toFixed(2)}):
+"""
+${m.content.substring(0, 500)}${m.content.length > 500 ? '...' : ''}
+"""`).join('\n\n')}
+
+`;
+  } else if (keepitMode === 'decay') {
+    // Apply decay rules - some survive, some can be summarized
+    let instructions = '';
+
+    if (surviving.length > 0) {
+      instructions += `
+## CRITICAL: MUST PRESERVE Verbatim
+The following marked content has high priority and MUST be preserved exactly as written.
+Do NOT paraphrase or modify - copy this content word-for-word into your output:
+
+${surviving.map(m => `### PRESERVE EXACTLY (weight ${m.weight.toFixed(2)}${m.isPinned ? ' - PINNED' : ''}):
+"""
+${m.content.substring(0, 500)}${m.content.length > 500 ? '...' : ''}
+"""`).join('\n\n')}
+
+`;
+    }
+
+    if (summarized.length > 0) {
+      instructions += `
+## Lower Priority Marked Content (may be summarized)
+The following marked content has lower priority and may be condensed if needed.
+Try to preserve the key points but normal summarization rules apply:
+
+${summarized.map(m => `- (weight ${m.weight.toFixed(2)}): "${m.content.substring(0, 100)}..."`).join('\n')}
+
+`;
+    }
+
+    return instructions;
+  }
+
+  // Default: no keepit instructions
+  return '';
+}
+
+/**
  * Build the summarization prompt for Claude
  */
 function buildSummarizationPrompt(messages, options) {
-  const { compactionRatio = 10, aggressiveness = 'moderate' } = options;
+  const {
+    compactionRatio = 10,
+    aggressiveness = 'moderate',
+    keepitMarkers = [],
+    keepitMode = 'decay'  // 'preserve-all', 'decay', or 'ignore'
+  } = options;
 
   const targetCount = Math.max(2, Math.ceil(messages.length / compactionRatio));
+
+  // Build keepit preservation instructions
+  const keepitInstructions = buildKeepitInstructions(keepitMarkers, keepitMode);
 
   // Extract text content from messages with timestamps
   const formattedMessages = messages.map((msg, idx) => {
@@ -83,7 +158,7 @@ function buildSummarizationPrompt(messages, options) {
   }).join('\n\n---\n\n');
 
   return `You are summarizing a conversation between a user and Claude assistant. Your goal is to reduce context size while maintaining session continuity and the "soul" of the interaction.
-
+${keepitInstructions}
 ## Summarization Rules:
 1. Preserve the USER's original intent, questions, and explicit requests
 2. Preserve ASSISTANT's key findings, decisions, and important explanations
@@ -341,6 +416,63 @@ function integrateSummaries(originalMessages, summaries, messageGraph) {
 }
 
 /**
+ * Extract keepit markers from messages and apply decay decisions
+ */
+function prepareKeepitMarkers(messages, options) {
+  const {
+    compressionRatio = 10,
+    sessionDistance = 0,
+    aggressiveness = null,
+    keepitMode = 'decay'
+  } = options;
+
+  // Extract all keepit markers from messages
+  const allMarkers = [];
+  for (const msg of messages) {
+    const text = extractTextContent(msg);
+    const markers = extractKeepitMarkers(text);
+    for (const marker of markers) {
+      allMarkers.push({
+        ...marker,
+        messageUuid: msg.uuid
+      });
+    }
+  }
+
+  if (allMarkers.length === 0) {
+    return { markers: [], decayPreview: null };
+  }
+
+  // Apply decay decisions
+  const decayPreview = previewDecay(allMarkers, {
+    compressionRatio,
+    sessionDistance,
+    aggressiveness
+  });
+
+  // Merge survival decisions into markers
+  const markersWithDecisions = allMarkers.map(marker => {
+    const decision = decayPreview.surviving.find(s => s.weight === marker.weight && s.marginFromThreshold !== undefined)
+      || decayPreview.summarized.find(s => s.weight === marker.weight);
+
+    const survives = keepitMode === 'preserve-all'
+      ? true
+      : shouldKeepitSurvive(marker.weight, sessionDistance, compressionRatio, aggressiveness);
+
+    return {
+      ...marker,
+      survives,
+      isPinned: marker.weight >= 1.0
+    };
+  });
+
+  return {
+    markers: markersWithDecisions,
+    decayPreview
+  };
+}
+
+/**
  * Main summarization function
  */
 export async function summarizeMessages(messages, options = {}) {
@@ -348,7 +480,10 @@ export async function summarizeMessages(messages, options = {}) {
     compactionRatio = 10,
     aggressiveness = 'moderate',
     model = 'opus',
-    dryRun = false
+    dryRun = false,
+    keepitMode = 'decay',        // 'preserve-all', 'decay', or 'ignore'
+    sessionDistance = 0,
+    verifyKeepits = true         // Whether to verify keepit preservation after summarization
   } = options;
 
   // Filter to only user/assistant text messages and sort by timestamp
@@ -360,10 +495,20 @@ export async function summarizeMessages(messages, options = {}) {
     throw new Error('Need at least 2 conversation messages to summarize');
   }
 
-  // Build prompt (messages now in chronological order)
+  // Prepare keepit markers with decay decisions
+  const { markers: keepitMarkers, decayPreview } = prepareKeepitMarkers(conversationMessages, {
+    compressionRatio: compactionRatio,
+    sessionDistance,
+    aggressiveness,
+    keepitMode
+  });
+
+  // Build prompt with keepit instructions
   const prompt = buildSummarizationPrompt(conversationMessages, {
     compactionRatio,
-    aggressiveness
+    aggressiveness,
+    keepitMarkers,
+    keepitMode
   });
 
   if (dryRun) {
@@ -375,19 +520,64 @@ export async function summarizeMessages(messages, options = {}) {
       estimatedOutputCount: targetCount,
       compactionRatio,
       aggressiveness,
-      promptLength: prompt.length
+      promptLength: prompt.length,
+      keepitStats: decayPreview ? {
+        total: decayPreview.stats.total,
+        surviving: decayPreview.stats.survivingCount,
+        summarized: decayPreview.stats.summarizedCount,
+        pinned: decayPreview.stats.pinnedCount,
+        threshold: decayPreview.threshold
+      } : null
     };
   }
 
   // Call Claude CLI
   const summaries = await callClaude(prompt, { model });
 
-  return {
+  // Build result
+  const result = {
     summaries,
     inputMessageCount: conversationMessages.length,
     outputMessageCount: summaries.length,
-    actualCompaction: (conversationMessages.length / summaries.length).toFixed(1)
+    actualCompaction: (conversationMessages.length / summaries.length).toFixed(1),
+    keepitStats: decayPreview ? {
+      total: decayPreview.stats.total,
+      surviving: decayPreview.stats.survivingCount,
+      summarized: decayPreview.stats.summarizedCount,
+      pinned: decayPreview.stats.pinnedCount,
+      threshold: decayPreview.threshold
+    } : null
   };
+
+  // Verify keepit preservation if requested
+  if (verifyKeepits && keepitMarkers.length > 0 && keepitMode !== 'ignore') {
+    const compressedContent = summaries.map(s => s.summary).join('\n');
+    const survivalDecisions = keepitMarkers.map(m => ({
+      markerId: m.markerId || `temp_${m.startIndex}`,
+      survives: m.survives,
+      weight: m.weight
+    }));
+
+    const verification = await verifyKeepitPreservation(
+      keepitMarkers.map(m => ({
+        markerId: m.markerId || `temp_${m.startIndex}`,
+        weight: m.weight,
+        content: m.content
+      })),
+      compressedContent,
+      survivalDecisions
+    );
+
+    result.keepitVerification = verification;
+
+    // Log verification results
+    if (verification.summary.missing > 0) {
+      console.warn('[Summarizer] Keepit verification warning: some markers missing');
+      console.warn(generateVerificationReport(verification));
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -399,7 +589,10 @@ export async function summarizeAndIntegrate(parsed, messageUuids, options = {}) 
     aggressiveness = 'moderate',
     model = 'opus',
     removeNonConversation = true,  // Auto-cleanup tools/thinking from range
-    skipFirstMessages = 0  // Skip first N messages from summarization (keep as-is)
+    skipFirstMessages = 0,  // Skip first N messages from summarization (keep as-is)
+    keepitMode = 'decay',         // 'preserve-all', 'decay', or 'ignore'
+    sessionDistance = 0,
+    verifyKeepits = true
   } = options;
 
   // Get messages in the specified range
@@ -429,13 +622,49 @@ export async function summarizeAndIntegrate(parsed, messageUuids, options = {}) 
     throw new Error('Need at least 2 user/assistant messages to summarize (after skipping)');
   }
 
+  // Prepare keepit markers with decay decisions
+  const { markers: keepitMarkers, decayPreview } = prepareKeepitMarkers(conversationMessages, {
+    compressionRatio: compactionRatio,
+    sessionDistance,
+    aggressiveness,
+    keepitMode
+  });
+
   // Get summaries from Claude
   const prompt = buildSummarizationPrompt(conversationMessages, {
     compactionRatio,
-    aggressiveness
+    aggressiveness,
+    keepitMarkers,
+    keepitMode
   });
 
   const summaries = await callClaude(prompt, { model });
+
+  // Verify keepit preservation if requested
+  let keepitVerification = null;
+  if (verifyKeepits && keepitMarkers.length > 0 && keepitMode !== 'ignore') {
+    const compressedContent = summaries.map(s => s.summary).join('\n');
+    const survivalDecisions = keepitMarkers.map(m => ({
+      markerId: m.markerId || `temp_${m.startIndex}`,
+      survives: m.survives,
+      weight: m.weight
+    }));
+
+    keepitVerification = await verifyKeepitPreservation(
+      keepitMarkers.map(m => ({
+        markerId: m.markerId || `temp_${m.startIndex}`,
+        weight: m.weight,
+        content: m.content
+      })),
+      compressedContent,
+      survivalDecisions
+    );
+
+    if (keepitVerification.summary.missing > 0) {
+      console.warn('[Summarizer] Keepit verification warning: some markers missing');
+      console.warn(generateVerificationReport(keepitVerification));
+    }
+  }
 
   // Determine which messages to remove:
   // - Always remove conversation messages (they're being summarized)
@@ -498,7 +727,15 @@ export async function summarizeAndIntegrate(parsed, messageUuids, options = {}) 
       compaction: `${conversationMessages.length} -> ${summaries.length}`,
       nonConversationRemoved
     },
-    summaries
+    summaries,
+    keepitStats: decayPreview ? {
+      total: decayPreview.stats.total,
+      surviving: decayPreview.stats.survivingCount,
+      summarized: decayPreview.stats.summarizedCount,
+      pinned: decayPreview.stats.pinnedCount,
+      threshold: decayPreview.threshold
+    } : null,
+    keepitVerification
   };
 }
 

@@ -390,20 +390,36 @@
           <div class="output-mode-options">
             <label class="output-option" :class="{ active: summarizationOptions.outputMode === 'modify' }">
               <input type="radio" value="modify" v-model="summarizationOptions.outputMode" />
-              <span class="output-option-icon">✏️</span>
+              <span class="output-option-icon">&#9998;</span>
               <span class="output-option-text">Modify current</span>
             </label>
             <label class="output-option" :class="{ active: summarizationOptions.outputMode === 'export-jsonl' }">
               <input type="radio" value="export-jsonl" v-model="summarizationOptions.outputMode" />
-              <span class="output-option-icon">📄</span>
+              <span class="output-option-icon">&#128196;</span>
               <span class="output-option-text">Export JSONL</span>
             </label>
             <label class="output-option" :class="{ active: summarizationOptions.outputMode === 'export-markdown' }">
               <input type="radio" value="export-markdown" v-model="summarizationOptions.outputMode" />
-              <span class="output-option-icon">📝</span>
+              <span class="output-option-icon">&#128221;</span>
               <span class="output-option-text">Export Markdown</span>
             </label>
+            <label
+              v-if="memorySystemAvailable"
+              class="output-option memory-option"
+              :class="{ active: summarizationOptions.outputMode === 'memory' }"
+            >
+              <input type="radio" value="memory" v-model="summarizationOptions.outputMode" />
+              <span class="output-option-icon">&#128230;</span>
+              <span class="output-option-text">Save to Memory</span>
+              <span v-if="!memorySessionRegistered" class="option-badge">+ Register</span>
+            </label>
           </div>
+        </div>
+
+        <!-- Memory Error Display -->
+        <div v-if="memoryError" class="memory-error-banner">
+          <span class="error-icon">&#9888;</span>
+          <span>{{ memoryError }}</span>
         </div>
 
         <div class="summarization-hint">
@@ -486,6 +502,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useSelectionStore } from '../stores/selection.js';
 import { findDuplicates, removeDuplicates, checkSummarizationStatus, getSummarizationPresets, previewSummarization, applySummarization } from '../utils/api.js';
+import * as memoryApi from '../utils/memory-api.js';
 
 const props = defineProps({
   sessionId: String,
@@ -536,8 +553,14 @@ const summarizationOptions = ref({
   // Skip first N messages (for pasted context from previous sessions)
   skipFirstMessages: 0,
   // Output options
-  outputMode: 'modify'  // 'modify' | 'export-jsonl' | 'export-markdown'
+  outputMode: 'modify'  // 'modify' | 'export-jsonl' | 'export-markdown' | 'memory'
 });
+
+// Memory status for Save to Memory option
+const memorySystemAvailable = ref(false);
+const memorySessionRegistered = ref(false);
+const memorySaving = ref(false);
+const memoryError = ref(null);
 const summarizationPreview = ref(null);
 const loadingSummarization = ref(false);
 const summarizationError = ref(null);
@@ -773,12 +796,23 @@ async function previewSummarizationAction() {
 }
 
 async function applySummarizationAction() {
+  const opts = summarizationOptions.value;
+
+  // Handle memory output mode separately
+  if (opts.outputMode === 'memory') {
+    try {
+      await saveToMemory();
+    } catch (err) {
+      // Error already handled in saveToMemory
+    }
+    return;
+  }
+
   loadingSummarization.value = true;
   summarizationError.value = null;
 
   try {
     const hasSelection = selectionStore.selectedMessageCount > 0;
-    const opts = summarizationOptions.value;
 
     const options = {
       model: opts.model,
@@ -859,7 +893,83 @@ function updateCustomTier(index, field, value) {
 // Check Claude availability on mount
 onMounted(() => {
   checkClaudeAvailability();
+  checkMemorySystemStatus();
 });
+
+// Check memory system availability and session registration
+async function checkMemorySystemStatus() {
+  try {
+    const status = await memoryApi.getMemoryStatus();
+    memorySystemAvailable.value = status.initialized;
+
+    if (status.initialized && props.projectId && props.sessionId) {
+      try {
+        const sessionStatus = await memoryApi.getSessionStatus(props.projectId, props.sessionId);
+        memorySessionRegistered.value = sessionStatus.registered;
+      } catch (err) {
+        // Session not registered yet, which is fine
+        memorySessionRegistered.value = false;
+      }
+    }
+  } catch (err) {
+    memorySystemAvailable.value = false;
+    console.warn('Memory system not available:', err);
+  }
+}
+
+// Save summarization to memory system
+async function saveToMemory(summarizationResult) {
+  memorySaving.value = true;
+  memoryError.value = null;
+
+  try {
+    // Register session if not already registered
+    if (!memorySessionRegistered.value) {
+      await memoryApi.registerSession(props.projectId, props.sessionId);
+      memorySessionRegistered.value = true;
+    }
+
+    // Create compression version settings from summarization options
+    const opts = summarizationOptions.value;
+    const compressionSettings = {
+      mode: opts.useTiers ? 'tiered' : 'uniform',
+      model: opts.model,
+      skipFirstMessages: opts.skipFirstMessages || 0
+    };
+
+    if (opts.useTiers) {
+      if (opts.tierPreset !== 'custom') {
+        compressionSettings.tierPreset = opts.tierPreset;
+      } else {
+        compressionSettings.tiers = opts.customTiers;
+      }
+    } else {
+      compressionSettings.compactionRatio = opts.compactionRatio;
+      compressionSettings.aggressiveness = opts.aggressiveness;
+    }
+
+    // Create the compression version
+    const version = await memoryApi.createCompressionVersion(
+      props.projectId,
+      props.sessionId,
+      compressionSettings
+    );
+
+    // Clear state
+    summarizationPreview.value = null;
+    selectionStore.clearAll();
+
+    // Show success (could emit an event or show a notification)
+    alert(`Compression version created! Version ID: ${version.versionId}`);
+
+    return version;
+  } catch (err) {
+    memoryError.value = err.message || 'Failed to save to memory';
+    throw err;
+  } finally {
+    memorySaving.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -2057,5 +2167,46 @@ onMounted(() => {
 
 .output-option-text {
   font-weight: 500;
+}
+
+.output-option.memory-option {
+  border-color: #764ba2;
+}
+
+.output-option.memory-option.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+}
+
+.option-badge {
+  font-size: 0.65rem;
+  padding: 0.125rem 0.375rem;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 3px;
+  font-weight: 600;
+  margin-left: 0.25rem;
+}
+
+.memory-option.active .option-badge {
+  background: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+
+.memory-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #c53030;
+  margin-bottom: 0.5rem;
+}
+
+.memory-error-banner .error-icon {
+  font-size: 1rem;
 }
 </style>
