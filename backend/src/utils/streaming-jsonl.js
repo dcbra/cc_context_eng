@@ -133,13 +133,16 @@ export async function verifyJsonlIntegrity(filePath) {
     try {
       const record = JSON.parse(line);
 
-      // Basic validation
-      if (!record.uuid) {
-        errors.push(`Line ${lineCount}: Missing uuid`);
-      }
+      // Basic validation - different record types have different required fields
       if (!record.type) {
         errors.push(`Line ${lineCount}: Missing type`);
+      } else if (record.type === 'user' || record.type === 'assistant' || record.type === 'system') {
+        // Message records require uuid
+        if (!record.uuid) {
+          errors.push(`Line ${lineCount}: Missing uuid for ${record.type} message`);
+        }
       }
+      // Note: 'summary' and 'file-history-snapshot' records don't require uuid
     } catch (e) {
       errors.push(`Line ${lineCount}: Invalid JSON - ${e.message}`);
     }

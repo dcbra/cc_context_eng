@@ -539,9 +539,16 @@ export function sessionToJsonl(parsed, sanitizedMessages) {
   const lines = [];
   const keptUuids = new Set(sanitizedMessages.map(m => m.uuid));
 
-  // Get the last message UUID for the summary
+  // Determine the leafUuid - preserve original if it still exists, otherwise fall back to last message
+  // This is critical for preserving the conversation branch the user was on.
+  // The conversation is a tree with potentially multiple branches, and the leafUuid
+  // marks which branch is the "current" one. Blindly using the last message in the
+  // array would switch to a different branch if deduplication changed the order.
+  const originalLeafUuid = parsed.summary?.leafUuid;
+  const originalLeafExists = originalLeafUuid && keptUuids.has(originalLeafUuid);
   const lastMessage = sanitizedMessages[sanitizedMessages.length - 1];
-  const leafUuid = lastMessage?.uuid || null;
+  const leafUuid = originalLeafExists ? originalLeafUuid : (lastMessage?.uuid || null);
+
 
   // Add summary record (updated with new leafUuid)
   if (parsed.summary) {
@@ -711,6 +718,12 @@ function getContentKey(message) {
   // Get the raw content for comparison
   const content = message.raw?.message?.content || message.content;
 
+  // If no content (e.g., system metadata messages), use UUID to make it unique
+  // This prevents all no-content messages from being grouped as duplicates
+  if (content === undefined || content === null) {
+    return `__no_content__${message.uuid}`;
+  }
+
   // Normalize the content to handle format differences
   const normalized = normalizeContent(content);
 
@@ -737,16 +750,36 @@ function getContentKey(message) {
  * This distinguishes true bugs (where Claude Code writes duplicate sequences)
  * from legitimate repeated prompts (user typing "still not working" twice).
  *
+ * @param {Array} messages - Array of message objects
+ * @param {string} leafUuid - Optional UUID of the leaf message. If provided, when the leaf
+ *                            message is part of a duplicate group, we keep it instead of
+ *                            the newest duplicate. This preserves the conversation chain.
+ *
  * Returns an object with:
  * - duplicateGroups: Array of groups, each containing UUIDs of duplicate messages
  * - duplicateUuids: Set of all UUIDs that are duplicates (not the original/oldest)
  * - totalDuplicates: Count of duplicate messages (excluding originals)
  * - isolatedDuplicates: Count of isolated duplicates that were NOT flagged (likely intentional)
  */
-export function findDuplicateMessages(messages) {
+export function findDuplicateMessages(messages, leafUuid = null) {
+
   // Build position index for adjacency checking
   const uuidToIndex = new Map();
   messages.forEach((m, idx) => uuidToIndex.set(m.uuid, idx));
+
+  // Build message map for parent chain traversal
+  const messageMap = new Map(messages.map(m => [m.uuid, m]));
+
+  // CRITICAL: Build the set of UUIDs in the leaf's parent chain - these MUST be protected
+  // The conversation chain from leaf to root is the "active" branch that must be preserved
+  const leafChainUuids = new Set();
+  if (leafUuid) {
+    let current = leafUuid;
+    while (current && messageMap.has(current)) {
+      leafChainUuids.add(current);
+      current = messageMap.get(current).parentUuid;
+    }
+  }
 
   // Group messages by content key
   const contentGroups = new Map();
@@ -765,12 +798,28 @@ export function findDuplicateMessages(messages) {
 
   for (const [key, group] of contentGroups) {
     if (group.length > 1) {
-      // Sort by timestamp to find the oldest (original)
-      group.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      // Check if any message in this group is in the leaf chain (must be protected)
+      const chainMessageInGroup = group.find(m => leafChainUuids.has(m.uuid));
 
-      // Mark all except the original as potential duplicates
-      for (let i = 1; i < group.length; i++) {
-        allPotentialDuplicateUuids.add(group[i].uuid);
+      if (chainMessageInGroup) {
+        // CRITICAL: A message from the leaf chain is in this duplicate group - we MUST keep it
+        // to preserve the conversation chain. Mark all others as duplicates.
+        for (const message of group) {
+          if (message.uuid !== chainMessageInGroup.uuid) {
+            allPotentialDuplicateUuids.add(message.uuid);
+          }
+        }
+      } else {
+        // No chain message in this group - sort by timestamp DESCENDING to find the newest
+        // IMPORTANT: We keep the NEWEST duplicate, not the oldest, because:
+        // Claude Code's active conversation state references the most recent UUIDs.
+        // If we remove those, Claude Code will recreate them when the session is resumed.
+        group.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        // Mark all except the newest as potential duplicates
+        for (let i = 1; i < group.length; i++) {
+          allPotentialDuplicateUuids.add(group[i].uuid);
+        }
       }
     }
   }
@@ -811,7 +860,13 @@ export function findDuplicateMessages(messages) {
 
   // Third pass: flag image-only messages that are adjacent to block duplicates
   // These are likely split images from duplicated text+image messages
+  // IMPORTANT: Skip messages in the leaf chain - they must be protected
   for (const uuid of imageOnlyUuids) {
+    // Skip if in the protected leaf chain
+    if (leafChainUuids.has(uuid)) {
+      continue;
+    }
+
     const idx = uuidToIndex.get(uuid);
 
     // Check if previous message is a block duplicate
@@ -834,12 +889,22 @@ export function findDuplicateMessages(messages) {
 
   for (const [key, group] of contentGroups) {
     if (group.length > 1) {
-      // Sort by timestamp to find the oldest (original)
-      group.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      // Check if any message in this group is in the leaf chain (must be protected)
+      const chainMessageInGroup = group.find(m => leafChainUuids.has(m.uuid));
 
-      // First one is the original, rest are potential duplicates
-      const original = group[0];
-      const duplicates = group.slice(1).filter(d => blockDuplicateUuids.has(d.uuid));
+      // Determine which message to keep as "original"
+      let original;
+      if (chainMessageInGroup) {
+        // Keep the leaf chain message
+        original = chainMessageInGroup;
+      } else {
+        // Sort by timestamp DESCENDING to find the newest (to keep)
+        group.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        original = group[0];
+      }
+
+      // All others in the group (that are block duplicates and not the original) are duplicates to remove
+      const duplicates = group.filter(d => d.uuid !== original.uuid && blockDuplicateUuids.has(d.uuid));
 
       // Only create a group if there are block duplicates
       if (duplicates.length > 0) {
@@ -878,18 +943,73 @@ export function findDuplicateMessages(messages) {
 }
 
 /**
- * Remove duplicate messages from a session, keeping only the oldest
- * Returns the deduplicated messages array
+ * Remove duplicate messages from a session
+ * Returns the deduplicated messages array with updated parent chains
+ *
+ * @param {Array} messages - Array of message objects
+ * @param {string} leafUuid - Optional UUID of the leaf message. If provided, when the leaf
+ *                            message is part of a duplicate group, we keep it to preserve
+ *                            the conversation chain.
  */
-export function deduplicateMessages(messages) {
-  const { duplicateUuids } = findDuplicateMessages(messages);
+export function deduplicateMessages(messages, leafUuid = null) {
+  const { duplicateUuids } = findDuplicateMessages(messages, leafUuid);
 
   if (duplicateUuids.size === 0) {
     return messages; // No duplicates found
   }
 
-  console.log(`[deduplicateMessages] Removing ${duplicateUuids.size} duplicate messages`);
 
-  // Filter out duplicate messages (keep originals)
-  return messages.filter(m => !duplicateUuids.has(m.uuid));
+  // Build a map of all messages for parent chain traversal
+  const messageMap = new Map(messages.map(m => [m.uuid, m]));
+
+  // Build set of kept message UUIDs
+  const keptUuids = new Set(messages.filter(m => !duplicateUuids.has(m.uuid)).map(m => m.uuid));
+
+  // Filter and update parent chains
+  const result = [];
+
+  for (const message of messages) {
+    if (duplicateUuids.has(message.uuid)) {
+      continue; // Skip duplicates
+    }
+
+    // Check if parent was removed and needs updating
+    if (message.parentUuid && duplicateUuids.has(message.parentUuid)) {
+      // The parent was a duplicate that got removed.
+      // Walk up the parent chain to find the nearest kept ancestor.
+      // IMPORTANT: We do NOT redirect to a "kept duplicate with same content" because
+      // that duplicate might be on a different branch, breaking the conversation chain.
+      let newParent = null;
+      let current = message.parentUuid;
+
+      while (current) {
+        // Check if current is kept
+        if (keptUuids.has(current)) {
+          newParent = current;
+          break;
+        }
+
+        const currentMessage = messageMap.get(current);
+        if (!currentMessage) {
+          // Message not in file (orphan reference), keep original parentUuid
+          newParent = message.parentUuid;
+          break;
+        }
+
+        if (!currentMessage.parentUuid) {
+          // Reached root without finding kept ancestor
+          newParent = null;
+          break;
+        }
+
+        current = currentMessage.parentUuid;
+      }
+
+      result.push({ ...message, parentUuid: newParent });
+    } else {
+      result.push(message);
+    }
+  }
+
+  return result;
 }

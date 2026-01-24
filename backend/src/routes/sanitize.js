@@ -40,6 +40,8 @@ router.post('/:sessionId', async (req, res, next) => {
     });
 
     // Save the sanitized session back to disk (preserving summary and file-history-snapshots)
+    // Messages are kept in topological order (parents before children).
+    // The leafUuid is preserved by sessionToJsonl from the original parsed.summary.
     const jsonlContent = sessionToJsonl(parsed, result.messages);
     await fs.writeFile(sessionFilePath, jsonlContent, 'utf-8');
 
@@ -111,9 +113,11 @@ router.post('/:sessionId/deduplicate', async (req, res, next) => {
     // Parse the session
     const parsed = await parseJsonlFile(sessionFilePath);
     const messageOrder = getMessageOrder(parsed);
+    const leafUuid = parsed.summary?.leafUuid;
 
     // Find duplicates first to report what will be removed
-    const duplicateInfo = findDuplicateMessages(messageOrder);
+    // Pass leafUuid so that if the leaf is a duplicate, we keep IT not another copy
+    const duplicateInfo = findDuplicateMessages(messageOrder, leafUuid);
 
     if (duplicateInfo.totalDuplicates === 0) {
       return res.json({
@@ -128,11 +132,17 @@ router.post('/:sessionId/deduplicate', async (req, res, next) => {
     // Create backup before modifying
     await createBackup(sessionId, projectId, parsed.messages, 'Auto-backup before deduplication');
 
-    // Deduplicate messages
-    const deduplicatedMessages = deduplicateMessages(messageOrder);
+    // Deduplicate messages - pass leafUuid to preserve the conversation chain
+    const deduplicatedMessages = deduplicateMessages(messageOrder, leafUuid);
+
+    // Keep messages in topological order (parents before children) from getMessageOrder.
+    // The leafUuid is preserved by sessionToJsonl from the original parsed.summary.
+    // NOTE: We do NOT sort by timestamp here because:
+    // 1. Claude Code expects parents to appear before children in the file
+    // 2. Timestamps can be out of order (async operations, clock skew)
+    // 3. The leafUuid preservation in sessionToJsonl handles the "current branch" issue
 
     // Save the deduplicated session back to disk
-    // We need to reconstruct parsed with deduplicated messages for sessionToJsonl
     const deduplicatedParsed = {
       ...parsed,
       messages: deduplicatedMessages
