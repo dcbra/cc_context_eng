@@ -11,6 +11,7 @@ import backupRoutes from './routes/backup.js';
 import exportRoutes from './routes/export.js';
 import summarizeRoutes from './routes/summarize.js';
 import memoryRoutes from './routes/memory.js';
+import imagesRoutes from './routes/images.js';
 
 // Error handling imports
 import { memoryErrorHandler, MemoryError } from './services/memory-errors.js';
@@ -39,6 +40,7 @@ app.use('/api/backup', backupRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/summarize', summarizeRoutes);
 app.use('/api/memory', memoryRoutes);
+app.use('/api/images', imagesRoutes);
 
 // Global error handling middleware
 // Handles both MemoryError instances and generic errors

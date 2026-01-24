@@ -115,7 +115,10 @@
                 <div v-if="expandedMessageId === message.uuid" class="message-expanded">
                   <div v-for="(block, idx) in getDisplayableContentBlocks(message.content)" :key="idx" class="content-block">
                     <div v-if="block.type === 'text'" class="text-block">
-                      <div class="text-content" v-text="formatTextContent(block.text)"></div>
+                      <ExtractedImageText
+                        :text="block.text"
+                        @expandImage="expandedImage = $event"
+                      />
                     </div>
                     <div v-else-if="block.type === 'thinking'" class="thinking-block">
                       <div class="thinking-content" v-text="formatTextContent(block.thinking)"></div>
@@ -126,7 +129,24 @@
                     </div>
                     <div v-else-if="block.type === 'tool_result'" class="tool-result-block">
                       <div class="tool-header">📋 Result</div>
-                      <div class="tool-result" v-text="formatTextContent(typeof block.content === 'string' ? block.content.substring(0, 1000) : JSON.stringify(block.content, null, 2))"></div>
+                      <div class="tool-result">
+                        <ExtractedImageText
+                          v-if="typeof block.content === 'string'"
+                          :text="block.content.substring(0, 1000)"
+                          @expandImage="expandedImage = $event"
+                        />
+                        <template v-else-if="Array.isArray(block.content)">
+                          <div v-for="(innerBlock, innerIdx) in block.content" :key="innerIdx" class="tool-result-inner">
+                            <ExtractedImageText
+                              v-if="innerBlock.type === 'text'"
+                              :text="innerBlock.text"
+                              @expandImage="expandedImage = $event"
+                            />
+                            <span v-else>{{ JSON.stringify(innerBlock, null, 2) }}</span>
+                          </div>
+                        </template>
+                        <span v-else v-text="formatTextContent(JSON.stringify(block.content, null, 2))"></span>
+                      </div>
                     </div>
                     <div v-else-if="block.type === 'image'" class="image-block">
                       <img
@@ -213,6 +233,7 @@ import FileTracker from './FileTracker.vue';
 import SanitizationPanel from './SanitizationPanel.vue';
 import BackupManager from './BackupManager.vue';
 import ExportPanel from './ExportPanel.vue';
+import ExtractedImageText from './ExtractedImageText.vue';
 
 const props = defineProps({
   session: {
@@ -1372,10 +1393,18 @@ async function handleFilesUpdated() {
   white-space: pre-wrap !important;
   word-wrap: break-word;
   word-break: break-word;
-  overflow-wrap: break-word;  
+  overflow-wrap: break-word;
   box-sizing: border-box;
   display: block;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.tool-result-inner {
+  margin-bottom: 0.5rem;
+}
+
+.tool-result-inner:last-child {
+  margin-bottom: 0;
 }
 
 .files-referenced {
