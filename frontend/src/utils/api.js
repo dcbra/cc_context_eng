@@ -64,10 +64,11 @@ export async function findDuplicates(sessionId, projectId) {
   return response.json();
 }
 
-export async function removeDuplicates(sessionId, projectId) {
+export async function removeDuplicates(sessionId, projectId, options = {}) {
   const response = await fetch(`${API_BASE}/sanitize/${sessionId}/deduplicate?projectId=${projectId}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options)
   });
   if (!response.ok) throw new Error('Failed to remove duplicates');
   return response.json();

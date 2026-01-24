@@ -119,6 +119,20 @@
       </div>
     </div>
 
+    <!-- Global Options -->
+    <div class="global-options-section">
+      <label class="global-option-item">
+        <input
+          v-model="globalOptions.extractImages"
+          type="checkbox"
+        />
+        <div class="option-content">
+          <span class="option-title">Extract embedded images</span>
+          <span class="option-hint">Fixes Claude Code bug that duplicates messages on session resume when images are present</span>
+        </div>
+      </label>
+    </div>
+
     <!-- Sanitization Summary & Actions -->
     <div class="sanitization-actions-section">
       <div class="selection-summary">
@@ -228,61 +242,6 @@
             </div>
           </div>
         </details>
-      </div>
-    </div>
-
-    <!-- Image Extraction Section -->
-    <div class="image-extraction-section">
-      <h4>Image Optimization</h4>
-      <div class="image-extraction-content">
-        <div class="image-extraction-info">
-          <span class="info-description">
-            Extract embedded base64 images from messages and save them to disk.
-            Reduces context size by replacing large image data with file path references.
-          </span>
-        </div>
-        <div class="image-extraction-actions">
-          <button
-            @click="applyImageExtraction"
-            class="btn-extract"
-            :disabled="loadingImageExtraction"
-          >
-            {{ loadingImageExtraction ? 'Extracting...' : 'Extract Images' }}
-          </button>
-        </div>
-      </div>
-
-      <!-- Result display -->
-      <div v-if="imageExtractionResult" class="image-extraction-result">
-        <div v-if="imageExtractionResult.extractedCount > 0" class="result-success">
-          <span class="result-icon">&#10003;</span>
-          <div class="result-details">
-            <strong>{{ imageExtractionResult.extractedCount }}</strong> images extracted
-            <span class="result-message">{{ imageExtractionResult.message }}</span>
-          </div>
-        </div>
-        <div v-else class="result-empty">
-          <span class="result-icon">&#8722;</span>
-          <span class="result-message">{{ imageExtractionResult.message || 'No embedded images found' }}</span>
-        </div>
-
-        <!-- Show saved paths if available -->
-        <div v-if="imageExtractionResult.savedPaths && imageExtractionResult.savedPaths.length > 0" class="saved-paths">
-          <details>
-            <summary>View saved files ({{ imageExtractionResult.savedPaths.length }})</summary>
-            <ul class="paths-list">
-              <li v-for="(path, idx) in imageExtractionResult.savedPaths" :key="idx" class="path-item">
-                {{ path }}
-              </li>
-            </ul>
-          </details>
-        </div>
-      </div>
-
-      <!-- Error display -->
-      <div v-if="imageExtractionError" class="image-extraction-error">
-        <span class="error-icon">&#9888;</span>
-        <span>{{ imageExtractionError }}</span>
       </div>
     </div>
 
@@ -563,7 +522,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useSelectionStore } from '../stores/selection.js';
-import { findDuplicates, removeDuplicates, checkSummarizationStatus, getSummarizationPresets, previewSummarization, applySummarization, extractImages } from '../utils/api.js';
+import { findDuplicates, removeDuplicates, checkSummarizationStatus, getSummarizationPresets, previewSummarization, applySummarization } from '../utils/api.js';
 import * as memoryApi from '../utils/memory-api.js';
 
 const props = defineProps({
@@ -584,6 +543,11 @@ const criteria = ref({
   percentageRange: 0          // NEW: 0-100% slider for message range
 });
 
+// Global options that apply to all operations
+const globalOptions = ref({
+  extractImages: true  // Default ON - fixes Claude Code duplication bug
+});
+
 const showPreview = ref(false);
 const previewData = ref(null);
 const loading = ref(false);
@@ -593,11 +557,6 @@ const error = ref(null);
 // Duplicates state
 const duplicatesData = ref(null);
 const loadingDuplicates = ref(false);
-
-// Image extraction state
-const imageExtractionResult = ref(null);
-const loadingImageExtraction = ref(false);
-const imageExtractionError = ref(null);
 
 // Summarization state
 const summarizationAvailable = ref(false);
@@ -734,7 +693,8 @@ async function applySanitization() {
         manuallySelected: hasSelection
           ? Array.from(selectionStore.selectedMessages)
           : undefined
-      }
+      },
+      extractImages: globalOptions.value.extractImages
     };
 
     const response = await fetch(
@@ -787,7 +747,9 @@ async function applyDeduplicate() {
   error.value = null;
 
   try {
-    const result = await removeDuplicates(props.sessionId, props.projectId);
+    const result = await removeDuplicates(props.sessionId, props.projectId, {
+      extractImages: globalOptions.value.extractImages
+    });
     console.log('Deduplication result:', result);
 
     // Clear duplicates data and emit sanitized event to reload
@@ -797,29 +759,6 @@ async function applyDeduplicate() {
     error.value = err.message;
   } finally {
     loadingDuplicates.value = false;
-  }
-}
-
-// Image extraction function
-async function applyImageExtraction() {
-  loadingImageExtraction.value = true;
-  imageExtractionError.value = null;
-  imageExtractionResult.value = null;
-
-  try {
-    const result = await extractImages(props.sessionId, props.projectId);
-    console.log('Image extraction result:', result);
-
-    imageExtractionResult.value = result;
-
-    // If images were extracted, emit sanitized event to reload the session
-    if (result.extractedCount > 0) {
-      emit('sanitized', result);
-    }
-  } catch (err) {
-    imageExtractionError.value = err.message;
-  } finally {
-    loadingImageExtraction.value = false;
   }
 }
 
@@ -908,7 +847,8 @@ async function applySummarizationAction() {
     const options = {
       model: opts.model,
       outputMode: opts.outputMode,
-      skipFirstMessages: opts.skipFirstMessages || 0
+      skipFirstMessages: opts.skipFirstMessages || 0,
+      extractImages: globalOptions.value.extractImages
     };
 
     // Add tiered or uniform options
@@ -1596,6 +1536,46 @@ async function saveToMemory(summarizationResult) {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+}
+
+/* Global Options Section */
+.global-options-section {
+  margin-bottom: 1.5rem;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1px solid #22c55e;
+  border-radius: 6px;
+}
+
+.global-option-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.global-option-item input[type="checkbox"] {
+  margin-top: 2px;
+  cursor: pointer;
+  accent-color: #22c55e;
+}
+
+.global-option-item .option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.global-option-item .option-title {
+  font-weight: 600;
+  color: #166534;
+  font-size: 0.9rem;
+}
+
+.global-option-item .option-hint {
+  font-size: 0.8rem;
+  color: #15803d;
+  line-height: 1.3;
 }
 
 /* Duplicates Section */

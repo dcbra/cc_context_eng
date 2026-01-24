@@ -69,7 +69,7 @@ router.post('/:sessionId', async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const { projectId } = req.query;
-    const { removeMessages, removeFiles, criteria } = req.body;
+    const { removeMessages, removeFiles, criteria, extractImages } = req.body;
 
     if (!sessionId || !projectId) {
       return res.status(400).json({ error: 'Missing sessionId or projectId' });
@@ -91,17 +91,28 @@ router.post('/:sessionId', async (req, res, next) => {
       removeCriteria: criteria || {}
     });
 
+    let finalMessages = result.messages;
+    let imageExtractionResult = null;
+
+    // Extract images if requested (fixes Claude Code duplication bug)
+    if (extractImages !== false) {
+      imageExtractionResult = await extractAndReplaceImages(finalMessages, sessionId);
+      finalMessages = imageExtractionResult.messages;
+      console.log(`[sanitize] Extracted ${imageExtractionResult.extractedCount} images`);
+    }
+
     // Save the sanitized session back to disk (preserving summary and file-history-snapshots)
     // Messages are kept in topological order (parents before children).
     // The leafUuid is preserved by sessionToJsonl from the original parsed.summary.
-    const jsonlContent = sessionToJsonl(parsed, result.messages);
+    const jsonlContent = sessionToJsonl(parsed, finalMessages);
     await fs.writeFile(sessionFilePath, jsonlContent, 'utf-8');
     await syncSessionsIndex(sessionFilePath, projectId);
 
     res.json({
       success: true,
       changes: result.changes,
-      messageCount: result.messages.length,
+      messageCount: finalMessages.length,
+      imagesExtracted: imageExtractionResult?.extractedCount || 0,
       impact: calculateSanitizationImpact(parsed, {
         removeMessages: removeMessages || [],
         removeFiles: removeFiles || [],
@@ -155,6 +166,7 @@ router.post('/:sessionId/deduplicate', async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const { projectId } = req.query;
+    const { extractImages } = req.body || {};
 
     if (!sessionId || !projectId) {
       return res.status(400).json({ error: 'Missing sessionId or projectId' });
@@ -172,7 +184,7 @@ router.post('/:sessionId/deduplicate', async (req, res, next) => {
     // Pass leafUuid so that if the leaf is a duplicate, we keep IT not another copy
     const duplicateInfo = findDuplicateMessages(messageOrder, leafUuid);
 
-    if (duplicateInfo.totalDuplicates === 0) {
+    if (duplicateInfo.totalDuplicates === 0 && extractImages === false) {
       return res.json({
         success: true,
         message: 'No duplicates found',
@@ -186,7 +198,18 @@ router.post('/:sessionId/deduplicate', async (req, res, next) => {
     await createBackup(sessionId, projectId, parsed.messages, 'Auto-backup before deduplication');
 
     // Deduplicate messages - pass leafUuid to preserve the conversation chain
-    const deduplicatedMessages = deduplicateMessages(messageOrder, leafUuid);
+    let finalMessages = duplicateInfo.totalDuplicates > 0
+      ? deduplicateMessages(messageOrder, leafUuid)
+      : messageOrder;
+
+    let imageExtractionResult = null;
+
+    // Extract images if requested (fixes Claude Code duplication bug)
+    if (extractImages !== false) {
+      imageExtractionResult = await extractAndReplaceImages(finalMessages, sessionId);
+      finalMessages = imageExtractionResult.messages;
+      console.log(`[deduplicate] Extracted ${imageExtractionResult.extractedCount} images`);
+    }
 
     // Keep messages in topological order (parents before children) from getMessageOrder.
     // The leafUuid is preserved by sessionToJsonl from the original parsed.summary.
@@ -198,9 +221,9 @@ router.post('/:sessionId/deduplicate', async (req, res, next) => {
     // Save the deduplicated session back to disk
     const deduplicatedParsed = {
       ...parsed,
-      messages: deduplicatedMessages
+      messages: finalMessages
     };
-    const jsonlContent = sessionToJsonl(deduplicatedParsed, deduplicatedMessages);
+    const jsonlContent = sessionToJsonl(deduplicatedParsed, finalMessages);
     await fs.writeFile(sessionFilePath, jsonlContent, 'utf-8');
     await syncSessionsIndex(sessionFilePath, projectId);
 
@@ -209,8 +232,9 @@ router.post('/:sessionId/deduplicate', async (req, res, next) => {
       message: `Removed ${duplicateInfo.totalDuplicates} duplicate messages`,
       duplicatesRemoved: duplicateInfo.totalDuplicates,
       duplicateGroups: duplicateInfo.duplicateGroups,
+      imagesExtracted: imageExtractionResult?.extractedCount || 0,
       originalCount: messageOrder.length,
-      newCount: deduplicatedMessages.length
+      newCount: finalMessages.length
     });
   } catch (error) {
     next(error);

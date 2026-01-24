@@ -4,7 +4,7 @@ import os from 'os';
 import fs from 'fs-extra';
 import { summarizeMessages, summarizeAndIntegrate, summarizeWithTiers, summarizeAndIntegrateWithTiers, TIER_PRESETS, DEFAULT_TIERS, COMPACTION_RATIOS } from '../services/summarizer.js';
 import { parseJsonlFile, getMessageOrder } from '../services/jsonl-parser.js';
-import { sessionToJsonl } from '../services/sanitizer.js';
+import { sessionToJsonl, extractAndReplaceImages } from '../services/sanitizer.js';
 import { createBackup } from '../services/backup-manager.js';
 
 const router = express.Router();
@@ -173,7 +173,9 @@ router.post('/:sessionId/apply', async (req, res, next) => {
       skipFirstMessages = 0,  // Keep first N messages as-is (for pasted context)
       // Export options
       outputMode = 'modify',  // 'modify' | 'export-jsonl' | 'export-markdown'
-      exportFilename = null   // Optional custom filename for export
+      exportFilename = null,   // Optional custom filename for export
+      // Image extraction option (fixes Claude Code duplication bug)
+      extractImages = true
     } = req.body;
 
     console.log(`[Summarize API] Apply request received:`);
@@ -248,13 +250,23 @@ router.post('/:sessionId/apply', async (req, res, next) => {
 
     console.log(`[Summarize API] Summarization complete:`, result.changes);
 
-    const updatedParsed = { ...parsed, messages: result.messages };
+    let finalMessages = result.messages;
+    let imageExtractionResult = null;
+
+    // Extract images if requested (fixes Claude Code duplication bug)
+    if (extractImages !== false) {
+      imageExtractionResult = await extractAndReplaceImages(finalMessages, sessionId);
+      finalMessages = imageExtractionResult.messages;
+      console.log(`[Summarize API] Extracted ${imageExtractionResult.extractedCount} images`);
+    }
+
+    const updatedParsed = { ...parsed, messages: finalMessages };
 
     // Handle different output modes
     if (outputMode === 'modify') {
       // Save the summarized session back to disk (original behavior)
       // Sort messages by timestamp to ensure chronological order
-      const sortedMessages = [...result.messages].sort((a, b) =>
+      const sortedMessages = [...finalMessages].sort((a, b) =>
         new Date(a.timestamp) - new Date(b.timestamp)
       );
       const jsonlContent = sessionToJsonl(updatedParsed, sortedMessages);
@@ -266,13 +278,14 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         changes: result.changes,
         summaries: result.summaries,
         tierResults: result.tierResults || null,
-        newMessageCount: result.messages.length
+        newMessageCount: finalMessages.length,
+        imagesExtracted: imageExtractionResult?.extractedCount || 0
       });
 
     } else if (outputMode === 'export-jsonl') {
       // Export as JSONL file (don't modify original)
       // Sort messages by timestamp to ensure chronological order
-      const sortedMessages = [...result.messages].sort((a, b) =>
+      const sortedMessages = [...finalMessages].sort((a, b) =>
         new Date(a.timestamp) - new Date(b.timestamp)
       );
       const jsonlContent = sessionToJsonl(updatedParsed, sortedMessages);
@@ -284,7 +297,8 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         changes: result.changes,
         summaries: result.summaries,
         tierResults: result.tierResults || null,
-        newMessageCount: result.messages.length,
+        newMessageCount: finalMessages.length,
+        imagesExtracted: imageExtractionResult?.extractedCount || 0,
         export: {
           filename,
           content: jsonlContent,
@@ -332,7 +346,8 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         changes: result.changes,
         summaries: result.summaries,
         tierResults: result.tierResults || null,
-        newMessageCount: result.messages.length,
+        newMessageCount: finalMessages.length,
+        imagesExtracted: imageExtractionResult?.extractedCount || 0,
         export: {
           filename,
           content: markdown,
