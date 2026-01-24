@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import os from 'os';
 import fs from 'fs-extra';
-import { sanitizeSession, calculateSanitizationImpact, sessionToJsonl, findDuplicateMessages, deduplicateMessages } from '../services/sanitizer.js';
+import { sanitizeSession, calculateSanitizationImpact, sessionToJsonl, findDuplicateMessages, deduplicateMessages, extractAndReplaceImages } from '../services/sanitizer.js';
 import { parseJsonlFile, getMessageOrder } from '../services/jsonl-parser.js';
 import { createBackup } from '../services/backup-manager.js';
 
@@ -159,6 +159,76 @@ router.post('/:sessionId/deduplicate', async (req, res, next) => {
       newCount: deduplicatedMessages.length
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/sanitize/:sessionId/extract-images
+ * Extract embedded base64 images from session, save to disk, and replace with file references
+ */
+router.post('/:sessionId/extract-images', async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const { projectId } = req.query;
+
+    if (!sessionId || !projectId) {
+      return res.status(400).json({ error: 'Missing sessionId or projectId' });
+    }
+
+    // Construct full file path
+    const sessionFilePath = path.join(PROJECTS_DIR, projectId, `${sessionId}.jsonl`);
+
+    // Check if file exists
+    const exists = await fs.pathExists(sessionFilePath);
+    if (!exists) {
+      return res.status(404).json({ error: `Session file not found: ${sessionFilePath}` });
+    }
+
+    console.log(`[extract-images] Starting extraction for session ${sessionId}`);
+
+    // Parse the session
+    const parsed = await parseJsonlFile(sessionFilePath);
+    const messageOrder = getMessageOrder(parsed);
+
+    console.log(`[extract-images] Parsed ${messageOrder.length} messages`);
+
+    // Extract and replace images
+    const extractResult = await extractAndReplaceImages(messageOrder, sessionId);
+
+    if (extractResult.extractedCount === 0) {
+      return res.json({
+        success: true,
+        message: 'No embedded base64 images found',
+        extractedCount: 0,
+        savedPaths: []
+      });
+    }
+
+    // Create backup before modifying
+    await createBackup(sessionId, projectId, parsed.messages, 'Auto-backup before image extraction');
+
+    console.log(`[extract-images] Extracted ${extractResult.extractedCount} images, saving modified session`);
+
+    // Save the modified session back to disk
+    const modifiedParsed = {
+      ...parsed,
+      messages: extractResult.messages
+    };
+    const jsonlContent = sessionToJsonl(modifiedParsed, extractResult.messages);
+    await fs.writeFile(sessionFilePath, jsonlContent, 'utf-8');
+
+    console.log(`[extract-images] Saved modified session to ${sessionFilePath}`);
+
+    res.json({
+      success: true,
+      message: `Extracted ${extractResult.extractedCount} images`,
+      extractedCount: extractResult.extractedCount,
+      savedPaths: extractResult.savedPaths,
+      originalMessageCount: messageOrder.length
+    });
+  } catch (error) {
+    console.error('[extract-images] Error:', error);
     next(error);
   }
 });

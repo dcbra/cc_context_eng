@@ -231,6 +231,61 @@
       </div>
     </div>
 
+    <!-- Image Extraction Section -->
+    <div class="image-extraction-section">
+      <h4>Image Optimization</h4>
+      <div class="image-extraction-content">
+        <div class="image-extraction-info">
+          <span class="info-description">
+            Extract embedded base64 images from messages and save them to disk.
+            Reduces context size by replacing large image data with file path references.
+          </span>
+        </div>
+        <div class="image-extraction-actions">
+          <button
+            @click="applyImageExtraction"
+            class="btn-extract"
+            :disabled="loadingImageExtraction"
+          >
+            {{ loadingImageExtraction ? 'Extracting...' : 'Extract Images' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Result display -->
+      <div v-if="imageExtractionResult" class="image-extraction-result">
+        <div v-if="imageExtractionResult.extractedCount > 0" class="result-success">
+          <span class="result-icon">&#10003;</span>
+          <div class="result-details">
+            <strong>{{ imageExtractionResult.extractedCount }}</strong> images extracted
+            <span class="result-message">{{ imageExtractionResult.message }}</span>
+          </div>
+        </div>
+        <div v-else class="result-empty">
+          <span class="result-icon">&#8722;</span>
+          <span class="result-message">{{ imageExtractionResult.message || 'No embedded images found' }}</span>
+        </div>
+
+        <!-- Show saved paths if available -->
+        <div v-if="imageExtractionResult.savedPaths && imageExtractionResult.savedPaths.length > 0" class="saved-paths">
+          <details>
+            <summary>View saved files ({{ imageExtractionResult.savedPaths.length }})</summary>
+            <ul class="paths-list">
+              <li v-for="(path, idx) in imageExtractionResult.savedPaths" :key="idx" class="path-item">
+                {{ path }}
+              </li>
+            </ul>
+          </details>
+        </div>
+      </div>
+
+      <!-- Error display -->
+      <div v-if="imageExtractionError" class="image-extraction-error">
+        <span class="error-icon">&#9888;</span>
+        <span>{{ imageExtractionError }}</span>
+      </div>
+    </div>
+
     <!-- AI Summarization Section -->
     <div class="summarization-section">
       <h4>AI Summarization</h4>
@@ -508,7 +563,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useSelectionStore } from '../stores/selection.js';
-import { findDuplicates, removeDuplicates, checkSummarizationStatus, getSummarizationPresets, previewSummarization, applySummarization } from '../utils/api.js';
+import { findDuplicates, removeDuplicates, checkSummarizationStatus, getSummarizationPresets, previewSummarization, applySummarization, extractImages } from '../utils/api.js';
 import * as memoryApi from '../utils/memory-api.js';
 
 const props = defineProps({
@@ -538,6 +593,11 @@ const error = ref(null);
 // Duplicates state
 const duplicatesData = ref(null);
 const loadingDuplicates = ref(false);
+
+// Image extraction state
+const imageExtractionResult = ref(null);
+const loadingImageExtraction = ref(false);
+const imageExtractionError = ref(null);
 
 // Summarization state
 const summarizationAvailable = ref(false);
@@ -737,6 +797,29 @@ async function applyDeduplicate() {
     error.value = err.message;
   } finally {
     loadingDuplicates.value = false;
+  }
+}
+
+// Image extraction function
+async function applyImageExtraction() {
+  loadingImageExtraction.value = true;
+  imageExtractionError.value = null;
+  imageExtractionResult.value = null;
+
+  try {
+    const result = await extractImages(props.sessionId, props.projectId);
+    console.log('Image extraction result:', result);
+
+    imageExtractionResult.value = result;
+
+    // If images were extracted, emit sanitized event to reload the session
+    if (result.extractedCount > 0) {
+      emit('sanitized', result);
+    }
+  } catch (err) {
+    imageExtractionError.value = err.message;
+  } finally {
+    loadingImageExtraction.value = false;
   }
 }
 
@@ -1650,6 +1733,180 @@ async function saveToMemory(summarizationResult) {
 
 .group-original {
   color: #718096;
+}
+
+/* Image Extraction Section */
+.image-extraction-section {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background-color: #f0fdf4;
+  border: 1px solid #22c55e;
+  border-radius: 4px;
+}
+
+.image-extraction-section h4 {
+  margin: 0 0 0.75rem 0;
+  color: #15803d;
+  font-size: 0.95rem;
+}
+
+.image-extraction-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.image-extraction-info {
+  flex: 1;
+  min-width: 200px;
+}
+
+.info-description {
+  font-size: 0.85rem;
+  color: #166534;
+  line-height: 1.4;
+}
+
+.image-extraction-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-extract {
+  padding: 0.5rem 1rem;
+  background: #22c55e;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-extract:hover:not(:disabled) {
+  background: #16a34a;
+}
+
+.btn-extract:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.image-extraction-result {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: white;
+  border-radius: 4px;
+}
+
+.result-success {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #15803d;
+}
+
+.result-success .result-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: #22c55e;
+  color: white;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 0.85rem;
+}
+
+.result-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.result-details strong {
+  color: #15803d;
+  font-size: 1rem;
+}
+
+.result-message {
+  font-size: 0.8rem;
+  color: #166534;
+}
+
+.result-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #6b7280;
+}
+
+.result-empty .result-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: #d1d5db;
+  color: white;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 1rem;
+}
+
+.saved-paths {
+  margin-top: 0.5rem;
+}
+
+.saved-paths summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #166534;
+  user-select: none;
+}
+
+.saved-paths summary:hover {
+  text-decoration: underline;
+}
+
+.paths-list {
+  margin: 0.5rem 0 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.path-item {
+  padding: 0.375rem 0.5rem;
+  background: #f7fafc;
+  border-radius: 3px;
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: #4a5568;
+  word-break: break-all;
+}
+
+.image-extraction-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #c53030;
+}
+
+.image-extraction-error .error-icon {
+  font-size: 1rem;
 }
 
 /* AI Summarization Section */

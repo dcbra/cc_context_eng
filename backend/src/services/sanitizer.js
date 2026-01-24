@@ -1013,3 +1013,189 @@ export function deduplicateMessages(messages, leafUuid = null) {
 
   return result;
 }
+
+/**
+ * Extract embedded base64 images from messages and save them to disk.
+ * Replaces base64 data with file path references.
+ *
+ * @param {Array} messages - Array of enhanced message objects
+ * @param {string} sessionId - Session ID for organizing saved images
+ * @param {string} imagesDir - Base directory for saving images (defaults to ~/.claude/images)
+ * @returns {Object} { messages: transformedMessages, extractedCount: number, savedPaths: string[] }
+ */
+export async function extractAndReplaceImages(messages, sessionId, imagesDir = null) {
+  const os = await import('os');
+  const path = await import('path');
+  const fs = await import('fs-extra');
+
+  // Default to ~/.claude/images/{sessionId}/
+  const baseDir = imagesDir || path.default.join(os.default.homedir(), '.claude', 'images');
+  const sessionImagesDir = path.default.join(baseDir, sessionId);
+
+  let extractedCount = 0;
+  const savedPaths = [];
+  const transformedMessages = [];
+
+  // Media type to extension mapping
+  const mediaTypeToExt = {
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/bmp': '.bmp',
+    'image/svg+xml': '.svg'
+  };
+
+  for (const message of messages) {
+    // Deep clone the message to avoid mutating original
+    const transformedMessage = JSON.parse(JSON.stringify(message));
+    let messageModified = false;
+
+    // Process content array for embedded images
+    if (transformedMessage.content && Array.isArray(transformedMessage.content)) {
+      for (let i = 0; i < transformedMessage.content.length; i++) {
+        const block = transformedMessage.content[i];
+
+        // Handle direct image blocks in content
+        if (block && block.type === 'image' && block.source?.type === 'base64' && block.source?.data) {
+          try {
+            const result = await saveBase64Image(
+              block.source.data,
+              block.source.media_type,
+              message.uuid,
+              i,
+              sessionImagesDir,
+              mediaTypeToExt,
+              fs,
+              path
+            );
+
+            if (result) {
+              // Replace the image block with a text reference
+              // Using text instead of source.type="file" because Claude API only accepts base64 or url
+              // The web interface can detect this pattern and display the actual image
+              transformedMessage.content[i] = {
+                type: 'text',
+                text: `[Image extracted: file://${result.filePath}]`
+              };
+
+              extractedCount++;
+              savedPaths.push(result.filePath);
+              messageModified = true;
+              console.log(`[extractAndReplaceImages] Extracted image from message ${message.uuid} (block ${i}) -> ${result.filePath}`);
+            }
+          } catch (err) {
+            console.error(`[extractAndReplaceImages] Failed to save image from message ${message.uuid}:`, err.message);
+          }
+        }
+
+        // Handle images inside tool_result blocks
+        if (block && block.type === 'tool_result' && block.content) {
+          const toolResultContent = Array.isArray(block.content) ? block.content : [block.content];
+          let toolResultModified = false;
+
+          for (let j = 0; j < toolResultContent.length; j++) {
+            const innerBlock = toolResultContent[j];
+
+            if (innerBlock && innerBlock.type === 'image' && innerBlock.source?.type === 'base64' && innerBlock.source?.data) {
+              try {
+                const result = await saveBase64Image(
+                  innerBlock.source.data,
+                  innerBlock.source.media_type,
+                  message.uuid,
+                  `${i}_${j}`,
+                  sessionImagesDir,
+                  mediaTypeToExt,
+                  fs,
+                  path
+                );
+
+                if (result) {
+                  // Replace the image block with a text reference
+                  // Using text instead of source.type="file" because Claude API only accepts base64 or url
+                  toolResultContent[j] = {
+                    type: 'text',
+                    text: `[Image extracted: file://${result.filePath}]`
+                  };
+
+                  extractedCount++;
+                  savedPaths.push(result.filePath);
+                  toolResultModified = true;
+                  console.log(`[extractAndReplaceImages] Extracted image from tool_result in message ${message.uuid} (block ${i}.${j}) -> ${result.filePath}`);
+                }
+              } catch (err) {
+                console.error(`[extractAndReplaceImages] Failed to save image from tool_result in message ${message.uuid}:`, err.message);
+              }
+            }
+          }
+
+          if (toolResultModified) {
+            // Update the tool_result content
+            if (Array.isArray(block.content)) {
+              transformedMessage.content[i].content = toolResultContent;
+            } else {
+              transformedMessage.content[i].content = toolResultContent[0];
+            }
+            messageModified = true;
+          }
+        }
+      }
+    }
+
+    // Also update the raw record if message was modified
+    if (messageModified && transformedMessage.raw?.message?.content) {
+      // Reconstruct raw.message.content from transformed content
+      transformedMessage.raw.message.content = transformedMessage.content;
+    }
+
+    // Handle Claude Code-specific toolUseResult field (contains image data in a different format)
+    // Format: { type: 'image', file: { base64: '...' } }
+    if (transformedMessage.raw?.toolUseResult?.type === 'image' && transformedMessage.raw?.toolUseResult?.file?.base64) {
+      // Find the corresponding saved path for this message (tool_result image)
+      const savedPath = savedPaths.find(p => p.includes(message.uuid));
+      if (savedPath) {
+        // Replace the toolUseResult with text reference
+        // Using text format because Claude API doesn't accept file references
+        transformedMessage.raw.toolUseResult = {
+          type: 'text',
+          text: `[Image extracted: file://${savedPath}]`
+        };
+        console.log(`[extractAndReplaceImages] Updated toolUseResult for message ${message.uuid} -> ${savedPath}`);
+      }
+    }
+
+    transformedMessages.push(transformedMessage);
+  }
+
+  return {
+    messages: transformedMessages,
+    extractedCount,
+    savedPaths
+  };
+}
+
+/**
+ * Helper function to save a base64 image to disk
+ */
+async function saveBase64Image(base64Data, mediaType, messageUuid, index, sessionImagesDir, mediaTypeToExt, fs, path) {
+  // Get file extension from media type
+  const ext = mediaTypeToExt[mediaType] || '.png';
+
+  // Create filename: {messageUuid}_{index}{ext}
+  const filename = `${messageUuid}_${index}${ext}`;
+  const filePath = path.default.join(sessionImagesDir, filename);
+
+  // Ensure directory exists
+  await fs.default.ensureDir(sessionImagesDir);
+
+  // Decode base64 and save
+  const buffer = Buffer.from(base64Data, 'base64');
+  await fs.default.writeFile(filePath, buffer);
+
+  return {
+    filePath,
+    filename,
+    size: buffer.length
+  };
+}

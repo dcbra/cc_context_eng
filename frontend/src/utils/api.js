@@ -141,3 +141,17 @@ export async function applySummarization(sessionId, projectId, options) {
   }
   return response.json();
 }
+
+// Image extraction API function
+
+export async function extractImages(sessionId, projectId) {
+  const response = await fetch(`${API_BASE}/sanitize/${sessionId}/extract-images?projectId=${encodeURIComponent(projectId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: 'Failed to extract images' }));
+    throw new Error(errorData.error || errorData.message || 'Failed to extract images');
+  }
+  return response.json();
+}
