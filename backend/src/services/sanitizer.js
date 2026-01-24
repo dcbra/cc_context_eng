@@ -1177,6 +1177,44 @@ export async function extractAndReplaceImages(messages, sessionId, imagesDir = n
           }
         }
       }
+
+      // CRITICAL: Merge consecutive text blocks into one
+      // Claude Code doesn't handle multiple consecutive text blocks well - it may trigger duplication
+      // After image extraction, [text, image] becomes [text, text] which causes issues
+      // We merge them into a single text block: [text]
+      if (messageModified && Array.isArray(transformedMessage.content)) {
+        const mergedContent = [];
+        let pendingText = null;
+
+        for (const block of transformedMessage.content) {
+          if (block && block.type === 'text') {
+            if (pendingText === null) {
+              pendingText = block.text || '';
+            } else {
+              // Merge with previous text block, using newline separator
+              pendingText += '\n\n' + (block.text || '');
+            }
+          } else {
+            // Non-text block - flush pending text first
+            if (pendingText !== null) {
+              mergedContent.push({ type: 'text', text: pendingText });
+              pendingText = null;
+            }
+            mergedContent.push(block);
+          }
+        }
+
+        // Flush any remaining text
+        if (pendingText !== null) {
+          mergedContent.push({ type: 'text', text: pendingText });
+        }
+
+        // Only update if we actually merged something
+        if (mergedContent.length < transformedMessage.content.length) {
+          console.log(`[extractAndReplaceImages] Merged ${transformedMessage.content.length} blocks into ${mergedContent.length} for message ${message.uuid}`);
+          transformedMessage.content = mergedContent;
+        }
+      }
     }
 
     // Handle plain string content with old format: [Image: source: /path]
