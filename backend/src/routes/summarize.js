@@ -4,7 +4,7 @@ import os from 'os';
 import fs from 'fs-extra';
 import { summarizeMessages, summarizeAndIntegrate, summarizeWithTiers, summarizeAndIntegrateWithTiers, TIER_PRESETS, DEFAULT_TIERS, COMPACTION_RATIOS } from '../services/summarizer.js';
 import { parseJsonlFile, getMessageOrder } from '../services/jsonl-parser.js';
-import { sessionToJsonl, extractAndReplaceImages } from '../services/sanitizer.js';
+import { sessionToJsonl, extractAndReplaceImages, findDuplicateMessages, deduplicateMessages } from '../services/sanitizer.js';
 import { createBackup } from '../services/backup-manager.js';
 
 const router = express.Router();
@@ -218,9 +218,40 @@ router.post('/:sessionId/apply', async (req, res, next) => {
       await createBackup(sessionId, projectId, parsed.messages, 'Auto-backup before summarization');
     }
 
+    // ===== PRE-PROCESSING: Clean up data BEFORE sending to LLM =====
+    let cleanedMessages = [...messageOrder];
+    let imageExtractionResult = null;
+    let duplicatesRemoved = 0;
+
+    // Step 1: Deduplicate messages (reduces tokens sent to LLM)
+    const leafUuid = parsed.summary?.leafUuid;
+    const duplicateInfo = findDuplicateMessages(cleanedMessages, leafUuid);
+    if (duplicateInfo.totalDuplicates > 0) {
+      cleanedMessages = deduplicateMessages(cleanedMessages, leafUuid);
+      duplicatesRemoved = duplicateInfo.totalDuplicates;
+      console.log(`[Summarize API] Pre-processing: Removed ${duplicatesRemoved} duplicates`);
+    }
+
+    // Step 2: Extract images (replaces base64 blobs with file paths - huge token savings!)
+    if (extractImages !== false) {
+      imageExtractionResult = await extractAndReplaceImages(cleanedMessages, sessionId);
+      cleanedMessages = imageExtractionResult.messages;
+      console.log(`[Summarize API] Pre-processing: Extracted ${imageExtractionResult.extractedCount} images`);
+    }
+
+    // Update parsed with cleaned messages for summarization
+    const cleanedParsed = { ...parsed, messages: cleanedMessages };
+
+    // Recalculate target UUIDs based on cleaned messages (some may have been removed)
+    const cleanedUuids = new Set(cleanedMessages.map(m => m.uuid));
+    const cleanedTargetUuids = targetUuids.filter(uuid => cleanedUuids.has(uuid));
+
+    console.log(`[Summarize API] After pre-processing: ${cleanedMessages.length} messages, ${cleanedTargetUuids.length} targets`);
+
+    // ===== LLM SUMMARIZATION =====
     let result;
 
-    console.log(`[Summarize API] Starting summarization with ${targetUuids.length} target messages...`);
+    console.log(`[Summarize API] Starting summarization with ${cleanedTargetUuids.length} target messages...`);
 
     if (useTiers) {
       // Use tiered compaction
@@ -229,7 +260,7 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         : (tiers || DEFAULT_TIERS);
 
       console.log(`[Summarize API] Using tiered compaction with ${effectiveTiers.length} tiers`);
-      result = await summarizeAndIntegrateWithTiers(parsed, targetUuids, {
+      result = await summarizeAndIntegrateWithTiers(cleanedParsed, cleanedTargetUuids, {
         tiers: effectiveTiers,
         tierPreset,
         model,
@@ -239,7 +270,7 @@ router.post('/:sessionId/apply', async (req, res, next) => {
     } else {
       // Use uniform compaction
       console.log(`[Summarize API] Using uniform compaction (ratio: ${compactionRatio}, aggressiveness: ${aggressiveness})`);
-      result = await summarizeAndIntegrate(parsed, targetUuids, {
+      result = await summarizeAndIntegrate(cleanedParsed, cleanedTargetUuids, {
         compactionRatio,
         aggressiveness,
         model,
@@ -250,16 +281,7 @@ router.post('/:sessionId/apply', async (req, res, next) => {
 
     console.log(`[Summarize API] Summarization complete:`, result.changes);
 
-    let finalMessages = result.messages;
-    let imageExtractionResult = null;
-
-    // Extract images if requested (fixes Claude Code duplication bug)
-    if (extractImages !== false) {
-      imageExtractionResult = await extractAndReplaceImages(finalMessages, sessionId);
-      finalMessages = imageExtractionResult.messages;
-      console.log(`[Summarize API] Extracted ${imageExtractionResult.extractedCount} images`);
-    }
-
+    const finalMessages = result.messages;
     const updatedParsed = { ...parsed, messages: finalMessages };
 
     // Handle different output modes
@@ -279,7 +301,10 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         summaries: result.summaries,
         tierResults: result.tierResults || null,
         newMessageCount: finalMessages.length,
-        imagesExtracted: imageExtractionResult?.extractedCount || 0
+        preProcessing: {
+          duplicatesRemoved,
+          imagesExtracted: imageExtractionResult?.extractedCount || 0
+        }
       });
 
     } else if (outputMode === 'export-jsonl') {
@@ -298,7 +323,10 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         summaries: result.summaries,
         tierResults: result.tierResults || null,
         newMessageCount: finalMessages.length,
-        imagesExtracted: imageExtractionResult?.extractedCount || 0,
+        preProcessing: {
+          duplicatesRemoved,
+          imagesExtracted: imageExtractionResult?.extractedCount || 0
+        },
         export: {
           filename,
           content: jsonlContent,
@@ -347,7 +375,10 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         summaries: result.summaries,
         tierResults: result.tierResults || null,
         newMessageCount: finalMessages.length,
-        imagesExtracted: imageExtractionResult?.extractedCount || 0,
+        preProcessing: {
+          duplicatesRemoved,
+          imagesExtracted: imageExtractionResult?.extractedCount || 0
+        },
         export: {
           filename,
           content: markdown,
