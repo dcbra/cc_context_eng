@@ -291,6 +291,18 @@
           </label>
         </div>
 
+        <!-- Preserve Links Option -->
+        <div class="preserve-links-option">
+          <label class="option-checkbox-label">
+            <input
+              type="checkbox"
+              v-model="summarizationOptions.preserveLinks"
+            />
+            <span class="option-name">Preserve URLs and file paths</span>
+            <span class="option-desc">Ask LLM to keep links, image references, and file paths intact</span>
+          </label>
+        </div>
+
         <!-- Uniform Compaction Options -->
         <div v-if="!summarizationOptions.useTiers" class="summarization-options">
           <div class="option-row">
@@ -579,6 +591,8 @@ const summarizationOptions = ref({
   ],
   // Skip first N messages (for pasted context from previous sessions)
   skipFirstMessages: 0,
+  // Preserve links option
+  preserveLinks: true,  // Ask LLM to preserve URLs and file paths
   // Output options
   outputMode: 'modify'  // 'modify' | 'export-jsonl' | 'export-markdown' | 'memory'
 });
@@ -848,6 +862,7 @@ async function applySummarizationAction() {
       model: opts.model,
       outputMode: opts.outputMode,
       skipFirstMessages: opts.skipFirstMessages || 0,
+      preserveLinks: opts.preserveLinks !== false,
       extractImages: globalOptions.value.extractImages
     };
 
@@ -2038,6 +2053,38 @@ async function saveToMemory(summarizationResult) {
   background: #fffbeb;
   border: 1px solid #fcd34d;
   border-radius: 4px;
+}
+
+.preserve-links-option {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem;
+  background: #f0f9ff;
+  border: 1px solid #7dd3fc;
+  border-radius: 4px;
+}
+
+.option-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.option-checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #0ea5e9;
+}
+
+.option-checkbox-label .option-name {
+  font-weight: 500;
+  color: #0369a1;
+}
+
+.option-checkbox-label .option-desc {
+  font-size: 0.75rem;
+  color: #0284c7;
+  margin-left: auto;
 }
 
 .option-select:focus {

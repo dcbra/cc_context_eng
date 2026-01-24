@@ -141,13 +141,27 @@ function buildSummarizationPrompt(messages, options) {
     compactionRatio = 10,
     aggressiveness = 'moderate',
     keepitMarkers = [],
-    keepitMode = 'decay'  // 'preserve-all', 'decay', or 'ignore'
+    keepitMode = 'decay',  // 'preserve-all', 'decay', or 'ignore'
+    preserveLinks = true   // Preserve URLs and file paths
   } = options;
 
   const targetCount = Math.max(2, Math.ceil(messages.length / compactionRatio));
 
   // Build keepit preservation instructions
   const keepitInstructions = buildKeepitInstructions(keepitMarkers, keepitMode);
+
+  // Build link preservation instructions
+  const linkPreservationInstructions = preserveLinks ? `
+## CRITICAL - Link and Reference Preservation:
+You MUST preserve ALL links and references EXACTLY as they appear in the original:
+- URLs (http://, https://) - preserve the full URL
+- File paths (/path/to/file, file:///...) - preserve exactly
+- Image references like [Image extracted: file:///...] - preserve the ENTIRE reference
+- Code references (filename:lineNumber format) - preserve exactly
+- Any path or URL mentioned by the user or assistant
+
+DO NOT paraphrase, shorten, or omit any links/paths. If a message mentions a file path or URL, that exact path/URL must appear in the summary.
+` : '';
 
   // Extract text content from messages with timestamps
   const formattedMessages = messages.map((msg, idx) => {
@@ -158,7 +172,7 @@ function buildSummarizationPrompt(messages, options) {
   }).join('\n\n---\n\n');
 
   return `You are summarizing a conversation between a user and Claude assistant. Your goal is to reduce context size while maintaining session continuity and the "soul" of the interaction.
-${keepitInstructions}
+${keepitInstructions}${linkPreservationInstructions}
 ## Summarization Rules:
 1. Preserve the USER's original intent, questions, and explicit requests
 2. Preserve ASSISTANT's key findings, decisions, and important explanations
@@ -483,7 +497,8 @@ export async function summarizeMessages(messages, options = {}) {
     dryRun = false,
     keepitMode = 'decay',        // 'preserve-all', 'decay', or 'ignore'
     sessionDistance = 0,
-    verifyKeepits = true         // Whether to verify keepit preservation after summarization
+    verifyKeepits = true,        // Whether to verify keepit preservation after summarization
+    preserveLinks = true         // Ask LLM to preserve URLs and file paths
   } = options;
 
   // Filter to only user/assistant text messages and sort by timestamp
@@ -508,7 +523,8 @@ export async function summarizeMessages(messages, options = {}) {
     compactionRatio,
     aggressiveness,
     keepitMarkers,
-    keepitMode
+    keepitMode,
+    preserveLinks
   });
 
   if (dryRun) {
@@ -592,7 +608,8 @@ export async function summarizeAndIntegrate(parsed, messageUuids, options = {}) 
     skipFirstMessages = 0,  // Skip first N messages from summarization (keep as-is)
     keepitMode = 'decay',         // 'preserve-all', 'decay', or 'ignore'
     sessionDistance = 0,
-    verifyKeepits = true
+    verifyKeepits = true,
+    preserveLinks = true          // Ask LLM to preserve URLs and file paths
   } = options;
 
   // Get messages in the specified range
@@ -635,7 +652,8 @@ export async function summarizeAndIntegrate(parsed, messageUuids, options = {}) 
     compactionRatio,
     aggressiveness,
     keepitMarkers,
-    keepitMode
+    keepitMode,
+    preserveLinks
   });
 
   const summaries = await callClaude(prompt, { model });
@@ -789,7 +807,8 @@ export async function summarizeWithTiers(messages, options = {}) {
     tiers = DEFAULT_TIERS,
     tierPreset = null,
     model = 'opus',
-    dryRun = false
+    dryRun = false,
+    preserveLinks = true  // Ask LLM to preserve URLs and file paths
   } = options;
 
   // Use preset if specified
@@ -869,7 +888,8 @@ export async function summarizeWithTiers(messages, options = {}) {
 
       const prompt = buildSummarizationPrompt(chunk, {
         compactionRatio: tier.compactionRatio,
-        aggressiveness: tier.aggressiveness
+        aggressiveness: tier.aggressiveness,
+        preserveLinks
       });
 
       const summaries = await callClaude(prompt, { model });
@@ -919,7 +939,8 @@ export async function summarizeAndIntegrateWithTiers(parsed, messageUuids, optio
     tierPreset = null,
     model = 'opus',
     removeNonConversation = true,  // Auto-cleanup tools/thinking from range
-    skipFirstMessages = 0  // Skip first N messages from summarization (keep as-is)
+    skipFirstMessages = 0,  // Skip first N messages from summarization (keep as-is)
+    preserveLinks = true    // Ask LLM to preserve URLs and file paths
   } = options;
 
   // Get messages in the specified range
@@ -953,7 +974,8 @@ export async function summarizeAndIntegrateWithTiers(parsed, messageUuids, optio
   const result = await summarizeWithTiers(conversationMessages, {
     tiers,
     tierPreset,
-    model
+    model,
+    preserveLinks
   });
 
   // Determine which messages to remove:

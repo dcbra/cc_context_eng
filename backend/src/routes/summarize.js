@@ -175,7 +175,9 @@ router.post('/:sessionId/apply', async (req, res, next) => {
       outputMode = 'modify',  // 'modify' | 'export-jsonl' | 'export-markdown'
       exportFilename = null,   // Optional custom filename for export
       // Image extraction option (fixes Claude Code duplication bug)
-      extractImages = true
+      extractImages = true,
+      // Link preservation option
+      preserveLinks = true  // Ask LLM to preserve URLs and file paths
     } = req.body;
 
     console.log(`[Summarize API] Apply request received:`);
@@ -265,7 +267,8 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         tierPreset,
         model,
         removeNonConversation,
-        skipFirstMessages
+        skipFirstMessages,
+        preserveLinks
       });
     } else {
       // Use uniform compaction
@@ -275,7 +278,8 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         aggressiveness,
         model,
         removeNonConversation,
-        skipFirstMessages
+        skipFirstMessages,
+        preserveLinks
       });
     }
 
