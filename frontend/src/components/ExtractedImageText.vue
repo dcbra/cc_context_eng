@@ -31,8 +31,10 @@ const props = defineProps({
 
 const emit = defineEmits(['expandImage']);
 
-// Regex pattern to match [Image extracted: file:///path/to/image.png]
-const EXTRACTED_IMAGE_PATTERN = /\[Image extracted: file:\/\/([^\]]+)\]/g;
+// Regex patterns to match image references
+// Pattern 1: [Image extracted: file:///path/to/image.png]
+// Pattern 2: file:///path/to/image.png (standalone file:// URLs)
+const EXTRACTED_IMAGE_PATTERN = /\[Image extracted: file:\/\/([^\]]+)\]|file:\/\/(\/[^\s\[\]<>]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp))/gi;
 
 // Parse text into segments of plain text and extracted images
 const parsedSegments = computed(() => {
@@ -57,8 +59,8 @@ const parsedSegments = computed(() => {
       }
     }
 
-    // Add the image reference
-    const fullPath = match[1];
+    // Add the image reference (match[1] for [Image extracted:...], match[2] for file://...)
+    const fullPath = match[1] || match[2];
     const filename = fullPath.split('/').pop();
     segments.push({
       type: 'image',
