@@ -30,7 +30,8 @@ const AGGRESSIVENESS_PROMPTS = {
 };
 
 // Available compaction ratios
-const COMPACTION_RATIOS = [2, 3, 4, 5, 10, 15, 20, 25, 35, 50];
+// 0 = passthrough (no LLM processing), 1 = verbosity reduction only
+const COMPACTION_RATIOS = [0, 1, 2, 3, 4, 5, 10, 15, 20, 25, 35, 50];
 
 // Maximum messages per chunk to avoid timeout
 const MAX_MESSAGES_PER_CHUNK = 30;
@@ -145,7 +146,11 @@ function buildSummarizationPrompt(messages, options) {
     preserveLinks = true   // Preserve URLs and file paths
   } = options;
 
-  const targetCount = Math.max(2, Math.ceil(messages.length / compactionRatio));
+  // Handle 1:1 ratio (verbosity reduction only)
+  const isVerbosityReduction = compactionRatio === 1;
+  const targetCount = isVerbosityReduction
+    ? messages.length  // Keep same count for 1:1
+    : Math.max(2, Math.ceil(messages.length / compactionRatio));
 
   // Build keepit preservation instructions
   const keepitInstructions = buildKeepitInstructions(keepitMarkers, keepitMode);
@@ -163,6 +168,17 @@ You MUST preserve ALL links and references EXACTLY as they appear in the origina
 DO NOT paraphrase, shorten, or omit any links/paths. If a message mentions a file path or URL, that exact path/URL must appear in the summary.
 ` : '';
 
+  // Build verbosity reduction instructions (for 1:1 ratio)
+  const verbosityReductionInstructions = isVerbosityReduction ? `
+## SPECIAL MODE: Verbosity Reduction (1:1)
+You are NOT compressing the conversation - you are REDUCING VERBOSITY while keeping the SAME number of messages.
+- Output EXACTLY ${messages.length} messages (same as input)
+- Keep all the same information, but make each message more concise
+- Remove filler words, unnecessary explanations, and redundant phrasing
+- Preserve the original meaning and all technical details
+- Each output message should correspond to the same input message (same role, same core content)
+` : '';
+
   // Extract text content from messages with timestamps
   const formattedMessages = messages.map((msg, idx) => {
     const role = msg.type === 'user' ? 'USER' : 'ASSISTANT';
@@ -172,7 +188,7 @@ DO NOT paraphrase, shorten, or omit any links/paths. If a message mentions a fil
   }).join('\n\n---\n\n');
 
   return `You are summarizing a conversation between a user and Claude assistant. Your goal is to reduce context size while maintaining session continuity and the "soul" of the interaction.
-${keepitInstructions}${linkPreservationInstructions}
+${keepitInstructions}${linkPreservationInstructions}${verbosityReductionInstructions}
 ## Summarization Rules:
 1. Preserve the USER's original intent, questions, and explicit requests
 2. Preserve ASSISTANT's key findings, decisions, and important explanations
@@ -872,6 +888,32 @@ export async function summarizeWithTiers(messages, options = {}) {
         inputMessages: 1,
         outputMessages: 1,
         compactionRatio: tier.compactionRatio
+      });
+      continue;
+    }
+
+    // Handle passthrough (ratio 0) - no LLM processing, keep messages as-is
+    if (tier.compactionRatio === 0) {
+      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}%: PASSTHROUGH (${tier.messages.length} messages kept as-is)`);
+
+      for (const msg of tier.messages) {
+        allSummaries.push({
+          role: msg.type,
+          summary: extractTextContent(msg),
+          _tierInfo: {
+            range: `${tier.startPercent}-${tier.endPercent}%`,
+            compactionRatio: 0,
+            passthrough: true
+          }
+        });
+      }
+
+      tierResults.push({
+        range: `${tier.startPercent}-${tier.endPercent}%`,
+        inputMessages: tier.messages.length,
+        outputMessages: tier.messages.length,
+        compactionRatio: 0,
+        passthrough: true
       });
       continue;
     }

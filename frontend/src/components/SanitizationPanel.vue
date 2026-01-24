@@ -310,7 +310,7 @@
               <span class="option-name">Compaction Ratio</span>
               <select v-model.number="summarizationOptions.compactionRatio" class="option-select">
                 <option v-for="ratio in compactionRatios" :key="ratio" :value="ratio">
-                  {{ ratio }}:1{{ ratio <= 5 ? ' (Light)' : ratio <= 15 ? ' (Moderate)' : ratio <= 25 ? ' (Strong)' : ' (Aggressive)' }}
+                  {{ ratio === 0 ? 'Passthrough (no LLM)' : ratio === 1 ? '1:1 (Verbosity Only)' : `${ratio}:1${ratio <= 5 ? ' (Light)' : ratio <= 15 ? ' (Moderate)' : ratio <= 25 ? ' (Strong)' : ' (Aggressive)'}` }}
                 </option>
               </select>
               <span class="option-desc">Messages compressed per output</span>
@@ -388,7 +388,9 @@
                 @change="updateCustomTier(idx, 'compactionRatio', Number($event.target.value))"
                 class="tier-select"
               >
-                <option v-for="ratio in compactionRatios" :key="ratio" :value="ratio">{{ ratio }}:1</option>
+                <option v-for="ratio in compactionRatios" :key="ratio" :value="ratio">
+                  {{ ratio === 0 ? 'Passthrough' : ratio === 1 ? '1:1 Verbosity' : `${ratio}:1` }}
+                </option>
               </select>
               <select
                 :value="tier.aggressiveness"
@@ -574,7 +576,8 @@ const loadingDuplicates = ref(false);
 const summarizationAvailable = ref(false);
 const summarizationVersion = ref('');
 const summarizationPresets = ref(null);
-const compactionRatios = ref([2, 3, 4, 5, 10, 15, 20, 25, 35, 50]);
+// 0 = passthrough (no LLM), 1 = verbosity reduction only (same message count)
+const compactionRatios = ref([0, 1, 2, 3, 4, 5, 10, 15, 20, 25, 35, 50]);
 const summarizationOptions = ref({
   compactionRatio: 10,
   aggressiveness: 'moderate',
