@@ -10,6 +10,58 @@ const router = express.Router();
 const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 
 /**
+ * Sync sessions-index.json with actual session file stats
+ * This prevents Claude Code from detecting a mismatch and duplicating messages
+ */
+async function syncSessionsIndex(sessionFilePath, projectId) {
+  try {
+    const sessionId = path.basename(sessionFilePath, '.jsonl');
+    const indexFile = path.join(PROJECTS_DIR, projectId, 'sessions-index.json');
+
+    if (!await fs.pathExists(indexFile)) {
+      console.log(`[syncSessionsIndex] Index file not found: ${indexFile}`);
+      return;
+    }
+
+    // Count actual messages
+    const content = await fs.readFile(sessionFilePath, 'utf-8');
+    const lines = content.trim().split('\n');
+    let messageCount = 0;
+    for (const line of lines) {
+      try {
+        const record = JSON.parse(line);
+        if (record.type === 'user' || record.type === 'assistant') {
+          messageCount++;
+        }
+      } catch (e) {}
+    }
+
+    // Get file mtime
+    const stat = await fs.stat(sessionFilePath);
+    const fileMtime = Math.floor(stat.mtimeMs);
+
+    // Update index
+    const index = JSON.parse(await fs.readFile(indexFile, 'utf-8'));
+    const entry = index.entries?.find(e => e.sessionId === sessionId);
+
+    if (!entry) {
+      console.log(`[syncSessionsIndex] Session ${sessionId} not found in index`);
+      return;
+    }
+
+    const oldCount = entry.messageCount;
+    entry.messageCount = messageCount;
+    entry.fileMtime = fileMtime;
+    entry.modified = new Date().toISOString();
+
+    await fs.writeFile(indexFile, JSON.stringify(index, null, 2));
+    console.log(`[syncSessionsIndex] Updated ${sessionId}: messageCount ${oldCount} -> ${messageCount}`);
+  } catch (error) {
+    console.error(`[syncSessionsIndex] Error:`, error.message);
+  }
+}
+
+/**
  * POST /api/sanitize/:sessionId
  * Apply sanitization rules and save to file
  */
@@ -44,6 +96,7 @@ router.post('/:sessionId', async (req, res, next) => {
     // The leafUuid is preserved by sessionToJsonl from the original parsed.summary.
     const jsonlContent = sessionToJsonl(parsed, result.messages);
     await fs.writeFile(sessionFilePath, jsonlContent, 'utf-8');
+    await syncSessionsIndex(sessionFilePath, projectId);
 
     res.json({
       success: true,
@@ -149,6 +202,7 @@ router.post('/:sessionId/deduplicate', async (req, res, next) => {
     };
     const jsonlContent = sessionToJsonl(deduplicatedParsed, deduplicatedMessages);
     await fs.writeFile(sessionFilePath, jsonlContent, 'utf-8');
+    await syncSessionsIndex(sessionFilePath, projectId);
 
     res.json({
       success: true,
@@ -217,6 +271,7 @@ router.post('/:sessionId/extract-images', async (req, res, next) => {
     };
     const jsonlContent = sessionToJsonl(modifiedParsed, extractResult.messages);
     await fs.writeFile(sessionFilePath, jsonlContent, 'utf-8');
+    await syncSessionsIndex(sessionFilePath, projectId);
 
     console.log(`[extract-images] Saved modified session to ${sessionFilePath}`);
 

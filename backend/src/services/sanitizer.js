@@ -596,6 +596,17 @@ function reconstructRawRecord(message) {
     if (updated.message) {
       updated.message.content = content;
     }
+
+    // CRITICAL: Remove imagePasteIds if images have been extracted to file references
+    // This prevents Claude Code from thinking images are "missing" and duplicating messages
+    if (updated.imagePasteIds) {
+      const contentStr = JSON.stringify(content);
+      if (contentStr.includes('[Image extracted:')) {
+        console.log(`[reconstructRawRecord] Removing imagePasteIds from message ${message.uuid} (images already extracted)`);
+        delete updated.imagePasteIds;
+      }
+    }
+
     return updated;
   }
 
@@ -1090,6 +1101,31 @@ export async function extractAndReplaceImages(messages, sessionId, imagesDir = n
           }
         }
 
+        // Handle old format text references: [Image: source: /path/to/image.png]
+        // Convert to new format: [Image extracted: file:///path/to/image.png]
+        if (block && block.type === 'text' && typeof block.text === 'string') {
+          const oldFormatMatch = block.text.match(/\[Image: source: ([^\]]+)\]/);
+          if (oldFormatMatch) {
+            const imagePath = oldFormatMatch[1].trim();
+            // Ensure path has file:// prefix
+            const filePath = imagePath.startsWith('file://') ? imagePath : `file://${imagePath}`;
+            transformedMessage.content[i] = {
+              type: 'text',
+              text: `[Image extracted: ${filePath}]`
+            };
+            messageModified = true;
+            extractedCount++;
+            console.log(`[extractAndReplaceImages] Converted old format image reference: ${imagePath}`);
+          }
+
+          // Also mark as modified if message already has extracted images but still has imagePasteIds
+          // This cleans up messages that were extracted before we added imagePasteIds clearing
+          // Note: imagePasteIds is in raw since that's where the original record fields are stored
+          if (block.text.includes('[Image extracted:') && transformedMessage.raw?.imagePasteIds) {
+            messageModified = true;
+          }
+        }
+
         // Handle images inside tool_result blocks
         if (block && block.type === 'tool_result' && block.content) {
           const toolResultContent = Array.isArray(block.content) ? block.content : [block.content];
@@ -1143,10 +1179,45 @@ export async function extractAndReplaceImages(messages, sessionId, imagesDir = n
       }
     }
 
+    // Handle plain string content with old format: [Image: source: /path]
+    if (transformedMessage.content && typeof transformedMessage.content === 'string') {
+      const oldFormatRegex = /\[Image: source: ([^\]]+)\]/g;
+      let match;
+      let newContent = transformedMessage.content;
+      let stringModified = false;
+
+      while ((match = oldFormatRegex.exec(transformedMessage.content)) !== null) {
+        const imagePath = match[1].trim();
+        const filePath = imagePath.startsWith('file://') ? imagePath : `file://${imagePath}`;
+        newContent = newContent.replace(match[0], `[Image extracted: ${filePath}]`);
+        stringModified = true;
+        extractedCount++;
+        console.log(`[extractAndReplaceImages] Converted old format in string content: ${imagePath}`);
+      }
+
+      if (stringModified) {
+        transformedMessage.content = newContent;
+        messageModified = true;
+      }
+    }
+
     // Also update the raw record if message was modified
     if (messageModified && transformedMessage.raw?.message?.content) {
       // Reconstruct raw.message.content from transformed content
       transformedMessage.raw.message.content = transformedMessage.content;
+    }
+
+    // CRITICAL: Clear imagePasteIds when images are extracted
+    // This field tells Claude Code that images were pasted - if we've converted them to text references,
+    // Claude Code will try to "restore" missing images and cause duplication
+    if (messageModified) {
+      if (transformedMessage.imagePasteIds) {
+        console.log(`[extractAndReplaceImages] Clearing imagePasteIds for message ${message.uuid}: ${JSON.stringify(transformedMessage.imagePasteIds)}`);
+        delete transformedMessage.imagePasteIds;
+      }
+      if (transformedMessage.raw?.imagePasteIds) {
+        delete transformedMessage.raw.imagePasteIds;
+      }
     }
 
     // Handle Claude Code-specific toolUseResult field (contains image data in a different format)
