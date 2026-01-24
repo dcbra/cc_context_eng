@@ -5,8 +5,12 @@ import fs from 'fs/promises';
 
 const router = express.Router();
 
-// Valid image directory - all served images must be under this path
-const IMAGES_BASE_DIR = path.join(os.homedir(), '.claude', 'images');
+// Valid image directories - all served images must be under one of these paths
+const ALLOWED_IMAGE_DIRS = [
+  path.join(os.homedir(), '.claude', 'images'),
+  path.join(os.homedir(), 'Pictures'),
+  path.join(os.homedir(), '.claude')  // For any other claude-related images
+];
 
 // Map of file extensions to MIME types
 const MIME_TYPES = {
@@ -49,10 +53,14 @@ router.get('/', async (req, res, next) => {
       ? normalizedPath
       : path.resolve(normalizedPath);
 
-    // Security check: Ensure the path is under ~/.claude/images/
-    const resolvedBase = path.resolve(IMAGES_BASE_DIR);
-    if (!absolutePath.startsWith(resolvedBase + path.sep) && absolutePath !== resolvedBase) {
-      console.warn(`[images] Blocked access to path outside images directory: ${absolutePath}`);
+    // Security check: Ensure the path is under one of the allowed directories
+    const isAllowed = ALLOWED_IMAGE_DIRS.some(allowedDir => {
+      const resolvedBase = path.resolve(allowedDir);
+      return absolutePath.startsWith(resolvedBase + path.sep) || absolutePath === resolvedBase;
+    });
+
+    if (!isAllowed) {
+      console.warn(`[images] Blocked access to path outside allowed directories: ${absolutePath}`);
       return res.status(403).json({
         error: {
           code: 'FORBIDDEN',
