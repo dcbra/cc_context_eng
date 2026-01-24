@@ -1150,16 +1150,21 @@ export async function extractAndReplaceImages(messages, sessionId, imagesDir = n
     }
 
     // Handle Claude Code-specific toolUseResult field (contains image data in a different format)
-    // Format: { type: 'image', file: { base64: '...' } }
+    // Format: { type: 'image', file: { base64: '...', type: '...', numLines: ..., etc } }
+    // IMPORTANT: Preserve the file object structure - Claude Code expects file.numLines to exist
     if (transformedMessage.raw?.toolUseResult?.type === 'image' && transformedMessage.raw?.toolUseResult?.file?.base64) {
       // Find the corresponding saved path for this message (tool_result image)
       const savedPath = savedPaths.find(p => p.includes(message.uuid));
       if (savedPath) {
-        // Replace the toolUseResult with text reference
-        // Using text format because Claude API doesn't accept file references
+        // Preserve the file object structure but remove base64 data
+        // Claude Code's internal code expects toolUseResult.file to exist with properties like numLines
         transformedMessage.raw.toolUseResult = {
-          type: 'text',
-          text: `[Image extracted: file://${savedPath}]`
+          ...transformedMessage.raw.toolUseResult,
+          file: {
+            ...transformedMessage.raw.toolUseResult.file,
+            base64: null,  // Remove the large base64 data
+            extractedPath: savedPath  // Reference to saved location
+          }
         };
         console.log(`[extractAndReplaceImages] Updated toolUseResult for message ${message.uuid} -> ${savedPath}`);
       }
