@@ -131,6 +131,16 @@
           <span class="option-hint">Fixes Claude Code bug that duplicates messages on session resume when images are present</span>
         </div>
       </label>
+      <label class="global-option-item">
+        <input
+          v-model="globalOptions.preserveAskUserQuestion"
+          type="checkbox"
+        />
+        <div class="option-content">
+          <span class="option-title">Preserve AskUserQuestion</span>
+          <span class="option-hint">Keep user interaction questions even when removing other tool calls</span>
+        </div>
+      </label>
     </div>
 
     <!-- Sanitization Summary & Actions -->
@@ -559,7 +569,8 @@ const criteria = ref({
 
 // Global options that apply to all operations
 const globalOptions = ref({
-  extractImages: true  // Default ON - fixes Claude Code duplication bug
+  extractImages: true,  // Default ON - fixes Claude Code duplication bug
+  preserveAskUserQuestion: true  // Default ON - preserve user interaction questions
 });
 
 const showPreview = ref(false);
@@ -709,7 +720,8 @@ async function applySanitization() {
         // Manual selection defines the scope for applying criteria
         manuallySelected: hasSelection
           ? Array.from(selectionStore.selectedMessages)
-          : undefined
+          : undefined,
+        preserveAskUserQuestion: globalOptions.value.preserveAskUserQuestion
       },
       extractImages: globalOptions.value.extractImages
     };
@@ -866,6 +878,7 @@ async function applySummarizationAction() {
       outputMode: opts.outputMode,
       skipFirstMessages: opts.skipFirstMessages || 0,
       preserveLinks: opts.preserveLinks !== false,
+      preserveAskUserQuestion: globalOptions.value.preserveAskUserQuestion,
       extractImages: globalOptions.value.extractImages
     };
 

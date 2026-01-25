@@ -177,7 +177,9 @@ router.post('/:sessionId/apply', async (req, res, next) => {
       // Image extraction option (fixes Claude Code duplication bug)
       extractImages = true,
       // Link preservation option
-      preserveLinks = true  // Ask LLM to preserve URLs and file paths
+      preserveLinks = true,  // Ask LLM to preserve URLs and file paths
+      // AskUserQuestion preservation
+      preserveAskUserQuestion = true  // Preserve user interaction questions
     } = req.body;
 
     console.log(`[Summarize API] Apply request received:`);
@@ -268,7 +270,8 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         model,
         removeNonConversation,
         skipFirstMessages,
-        preserveLinks
+        preserveLinks,
+        preserveAskUserQuestion
       });
     } else {
       // Use uniform compaction
@@ -279,7 +282,8 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         model,
         removeNonConversation,
         skipFirstMessages,
-        preserveLinks
+        preserveLinks,
+        preserveAskUserQuestion
       });
     }
 

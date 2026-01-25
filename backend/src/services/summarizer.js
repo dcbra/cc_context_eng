@@ -143,7 +143,8 @@ function buildSummarizationPrompt(messages, options) {
     aggressiveness = 'moderate',
     keepitMarkers = [],
     keepitMode = 'decay',  // 'preserve-all', 'decay', or 'ignore'
-    preserveLinks = true   // Preserve URLs and file paths
+    preserveLinks = true,   // Preserve URLs and file paths
+    preserveAskUserQuestion = true  // Preserve user interaction questions
   } = options;
 
   // Handle 1:1 ratio (verbosity reduction only)
@@ -179,6 +180,16 @@ You are NOT compressing the conversation - you are REDUCING VERBOSITY while keep
 - Each output message should correspond to the same input message (same role, same core content)
 ` : '';
 
+  // Build AskUserQuestion preservation instructions
+  const askUserQuestionInstructions = preserveAskUserQuestion ? `
+## CRITICAL - Preserve User Interaction Questions:
+When you encounter messages where Claude asked the user questions (AskUserQuestion), you MUST:
+- Preserve the EXACT questions that were asked
+- Preserve the user's answers/responses to those questions
+- Keep the question-answer pairs intact and coherent
+- These interaction points are critical for understanding the conversation flow
+` : '';
+
   // Extract text content from messages with timestamps
   const formattedMessages = messages.map((msg, idx) => {
     const role = msg.type === 'user' ? 'USER' : 'ASSISTANT';
@@ -188,7 +199,7 @@ You are NOT compressing the conversation - you are REDUCING VERBOSITY while keep
   }).join('\n\n---\n\n');
 
   return `You are summarizing a conversation between a user and Claude assistant. Your goal is to reduce context size while maintaining session continuity and the "soul" of the interaction.
-${keepitInstructions}${linkPreservationInstructions}${verbosityReductionInstructions}
+${keepitInstructions}${linkPreservationInstructions}${askUserQuestionInstructions}${verbosityReductionInstructions}
 ## Summarization Rules:
 1. Preserve the USER's original intent, questions, and explicit requests
 2. Preserve ASSISTANT's key findings, decisions, and important explanations
@@ -514,7 +525,8 @@ export async function summarizeMessages(messages, options = {}) {
     keepitMode = 'decay',        // 'preserve-all', 'decay', or 'ignore'
     sessionDistance = 0,
     verifyKeepits = true,        // Whether to verify keepit preservation after summarization
-    preserveLinks = true         // Ask LLM to preserve URLs and file paths
+    preserveLinks = true,        // Ask LLM to preserve URLs and file paths
+    preserveAskUserQuestion = true  // Preserve user interaction questions
   } = options;
 
   // Filter to only user/assistant text messages and sort by timestamp
@@ -540,7 +552,8 @@ export async function summarizeMessages(messages, options = {}) {
     aggressiveness,
     keepitMarkers,
     keepitMode,
-    preserveLinks
+    preserveLinks,
+    preserveAskUserQuestion
   });
 
   if (dryRun) {
@@ -625,7 +638,8 @@ export async function summarizeAndIntegrate(parsed, messageUuids, options = {}) 
     keepitMode = 'decay',         // 'preserve-all', 'decay', or 'ignore'
     sessionDistance = 0,
     verifyKeepits = true,
-    preserveLinks = true          // Ask LLM to preserve URLs and file paths
+    preserveLinks = true,          // Ask LLM to preserve URLs and file paths
+    preserveAskUserQuestion = true  // Preserve user interaction questions
   } = options;
 
   // Get messages in the specified range
@@ -669,7 +683,8 @@ export async function summarizeAndIntegrate(parsed, messageUuids, options = {}) 
     aggressiveness,
     keepitMarkers,
     keepitMode,
-    preserveLinks
+    preserveLinks,
+    preserveAskUserQuestion
   });
 
   const summaries = await callClaude(prompt, { model });
@@ -824,7 +839,8 @@ export async function summarizeWithTiers(messages, options = {}) {
     tierPreset = null,
     model = 'opus',
     dryRun = false,
-    preserveLinks = true  // Ask LLM to preserve URLs and file paths
+    preserveLinks = true,  // Ask LLM to preserve URLs and file paths
+    preserveAskUserQuestion = true  // Preserve user interaction questions
   } = options;
 
   // Use preset if specified
@@ -931,7 +947,8 @@ export async function summarizeWithTiers(messages, options = {}) {
       const prompt = buildSummarizationPrompt(chunk, {
         compactionRatio: tier.compactionRatio,
         aggressiveness: tier.aggressiveness,
-        preserveLinks
+        preserveLinks,
+        preserveAskUserQuestion
       });
 
       const summaries = await callClaude(prompt, { model });
@@ -982,7 +999,8 @@ export async function summarizeAndIntegrateWithTiers(parsed, messageUuids, optio
     model = 'opus',
     removeNonConversation = true,  // Auto-cleanup tools/thinking from range
     skipFirstMessages = 0,  // Skip first N messages from summarization (keep as-is)
-    preserveLinks = true    // Ask LLM to preserve URLs and file paths
+    preserveLinks = true,    // Ask LLM to preserve URLs and file paths
+    preserveAskUserQuestion = true  // Preserve user interaction questions
   } = options;
 
   // Get messages in the specified range
@@ -1017,7 +1035,8 @@ export async function summarizeAndIntegrateWithTiers(parsed, messageUuids, optio
     tiers,
     tierPreset,
     model,
-    preserveLinks
+    preserveLinks,
+    preserveAskUserQuestion
   });
 
   // Determine which messages to remove:

@@ -262,6 +262,45 @@ function removeFileContent(messages, filesToRemove) {
  * Matches frontend logic from SessionEditor.vue
  * Also handles converted blocks that preserve semantic type via converted_from property
  */
+/**
+ * Check if a message contains an AskUserQuestion tool call or result
+ */
+function hasAskUserQuestion(message) {
+  const content = Array.isArray(message.content) ? message.content : [];
+
+  // Check for AskUserQuestion tool_use
+  for (const block of content) {
+    if (block?.type === 'tool_use' && block?.name === 'AskUserQuestion') {
+      return true;
+    }
+    // Check for tool_result with AskUserQuestion in the tool_use_id context
+    // The tool_use_id links to the original AskUserQuestion call
+    if (block?.type === 'tool_result') {
+      // We need to check if this result is for an AskUserQuestion
+      // Look at the message's sourceToolAssistantUUID or toolUseResult
+      if (message.raw?.toolUseResult?.questions) {
+        return true;  // AskUserQuestion results have a 'questions' field
+      }
+    }
+  }
+
+  // Check toolUses array (Claude Code format)
+  if (message.toolUses) {
+    for (const toolUse of message.toolUses) {
+      if (toolUse.name === 'AskUserQuestion') {
+        return true;
+      }
+    }
+  }
+
+  // Check for AskUserQuestion result in Claude Code format
+  if (message.raw?.toolUseResult?.questions || message.raw?.toolUseResult?.answers) {
+    return true;
+  }
+
+  return false;
+}
+
 function getMessageType(message) {
   const content = Array.isArray(message.content) ? message.content : [];
 
@@ -354,6 +393,7 @@ function applySanitizationCriteria(messages, criteria) {
   if (criteria.messageTypes && criteria.messageTypes.length > 0) {
     const typesSet = new Set(criteria.messageTypes);
     const beforeFilter = workingSet.length;
+    const preserveAskUserQuestion = criteria.preserveAskUserQuestion !== false;
 
     workingSet = workingSet.filter(m => {
       // If a range filter is active (manual selection or percentage) and message is not in range, keep it
@@ -363,7 +403,15 @@ function applySanitizationCriteria(messages, criteria) {
 
       // Check message type - REMOVE if it matches selected types
       const messageType = getMessageType(m);
-      const shouldRemove = typesSet.has(messageType);
+      let shouldRemove = typesSet.has(messageType);
+
+      // Preserve AskUserQuestion tool calls even when removing other tools
+      if (shouldRemove && preserveAskUserQuestion && (messageType === 'tool' || messageType === 'tool-result')) {
+        if (hasAskUserQuestion(m)) {
+          console.log('[applySanitizationCriteria] Preserving AskUserQuestion:', m.uuid);
+          shouldRemove = false;
+        }
+      }
 
       // Debug logging
       if (hasRangeFilter) {
