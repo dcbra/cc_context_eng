@@ -1179,11 +1179,23 @@ export async function summarizeWithTiers(messages, options = {}) {
 
       console.log(`[Summarizer]   Selected ${selection.keptMessages.length} important messages to keep verbatim`);
 
+      // Phase 1b: Also keep AskUserQuestion messages (they're critical interaction points)
+      // Add their indices to the kept set if preserveAskUserQuestion is enabled
+      const allKeptIndices = new Set(selection.keptIndices);
+      if (preserveAskUserQuestion) {
+        tier.messages.forEach((msg, idx) => {
+          if (hasAskUserQuestion(msg) && !allKeptIndices.has(idx)) {
+            allKeptIndices.add(idx);
+            console.log(`[Summarizer]   Also keeping AskUserQuestion message at index ${idx}`);
+          }
+        });
+      }
+
       // Phase 2: Build intervals between kept messages and summarize each interval separately
       // This preserves chronological order: [summary_before_keep1] [keep1] [summary_between_1_2] [keep2] ...
 
       // Sort kept indices to build intervals
-      const sortedKeptIndices = [...selection.keptIndices].sort((a, b) => a - b);
+      const sortedKeptIndices = [...allKeptIndices].sort((a, b) => a - b);
 
       // Build intervals: messages between each kept message
       const intervals = [];
@@ -1327,7 +1339,102 @@ export async function summarizeWithTiers(messages, options = {}) {
     }
 
     // Standard summarization (no keepRatio)
-    // Split tier into chunks to avoid timeout
+    // Check if we need to preserve AskUserQuestion messages as interval boundaries
+    const askUserIndices = [];
+    if (preserveAskUserQuestion) {
+      tier.messages.forEach((msg, idx) => {
+        if (hasAskUserQuestion(msg)) {
+          askUserIndices.push(idx);
+        }
+      });
+    }
+
+    // If there are AskUserQuestion messages, use interval-based processing
+    if (askUserIndices.length > 0) {
+      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}%: ${tier.messages.length} messages with ${askUserIndices.length} AskUserQuestion to preserve`);
+
+      // Build intervals around AskUserQuestion messages
+      const intervals = [];
+      let prevEnd = 0;
+      const sortedIndices = [...askUserIndices].sort((a, b) => a - b);
+
+      for (const keepIdx of sortedIndices) {
+        if (keepIdx > prevEnd) {
+          intervals.push({
+            type: 'summarize',
+            messages: tier.messages.slice(prevEnd, keepIdx),
+            startIdx: prevEnd,
+            endIdx: keepIdx
+          });
+        }
+        intervals.push({
+          type: 'keep',
+          message: tier.messages[keepIdx],
+          idx: keepIdx
+        });
+        prevEnd = keepIdx + 1;
+      }
+
+      if (prevEnd < tier.messages.length) {
+        intervals.push({
+          type: 'summarize',
+          messages: tier.messages.slice(prevEnd),
+          startIdx: prevEnd,
+          endIdx: tier.messages.length
+        });
+      }
+
+      const tierSummaries = [];
+      for (const interval of intervals) {
+        if (interval.type === 'keep') {
+          tierSummaries.push({
+            role: interval.message.type,
+            summary: extractTextContent(interval.message),
+            _tierInfo: {
+              range: `${tier.startPercent}-${tier.endPercent}%`,
+              compactionRatio: tier.compactionRatio,
+              kept: true,
+              askUserQuestion: true
+            },
+            _originalTimestamp: interval.message.timestamp
+          });
+        } else if (interval.messages.length > 0) {
+          const chunks = chunkArray(interval.messages, MAX_MESSAGES_PER_CHUNK);
+          for (const chunk of chunks) {
+            const prompt = buildSummarizationPrompt(chunk, {
+              compactionRatio: tier.compactionRatio,
+              aggressiveness: tier.aggressiveness,
+              preserveLinks,
+              preserveAskUserQuestion
+            });
+            const summaries = await callClaude(prompt, { model });
+            summaries.forEach(s => {
+              s._tierInfo = {
+                range: `${tier.startPercent}-${tier.endPercent}%`,
+                compactionRatio: tier.compactionRatio
+              };
+              s._originalTimestamp = chunk[0]?.timestamp;
+            });
+            tierSummaries.push(...summaries);
+          }
+        }
+      }
+
+      allSummaries.push(...tierSummaries);
+      tierResults.push({
+        range: `${tier.startPercent}-${tier.endPercent}%`,
+        inputMessages: tier.messages.length,
+        outputMessages: tierSummaries.length,
+        compactionRatio: tier.compactionRatio,
+        aggressiveness: tier.aggressiveness,
+        askUserQuestionsPreserved: askUserIndices.length
+      });
+
+      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}% complete: ${tier.messages.length} -> ${tierSummaries.length} (preserved ${askUserIndices.length} AskUserQuestion)`);
+      continue;
+    }
+
+    // No AskUserQuestion to preserve - use simple chunking
     const chunks = chunkArray(tier.messages, MAX_MESSAGES_PER_CHUNK);
     const tierSummaries = [];
 
