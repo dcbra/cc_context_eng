@@ -37,7 +37,10 @@ const COMPACTION_RATIOS = [0, 1, 2, 3, 4, 5, 10, 15, 20, 25, 35, 50];
 const MAX_MESSAGES_PER_CHUNK = 30;
 
 // Available keep ratios for hybrid mode
-const KEEP_RATIOS = [0, 5, 10, 20, 50];
+// 0 = none (don't keep any, just summarize)
+// 1 = all (keep all messages verbatim - passthrough)
+// 2+ = keep 1 in N most important
+const KEEP_RATIOS = [0, 1, 2, 3, 4, 5, 10, 20, 50];
 
 // Default tier presets for variable compaction (5 tiers)
 const DEFAULT_TIERS = [

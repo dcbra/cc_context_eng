@@ -398,10 +398,10 @@
                 :value="tier.keepRatio || 0"
                 @change="updateCustomTier(idx, 'keepRatio', Number($event.target.value))"
                 class="tier-select tier-select-keep"
-                :title="tier.keepRatio > 0 ? `Keep 1 in ${tier.keepRatio} messages verbatim, summarize the rest` : 'No hybrid mode - summarize all'"
+                :title="tier.keepRatio === 0 ? 'No hybrid mode - summarize all' : tier.keepRatio === 1 ? 'Keep ALL messages verbatim (passthrough)' : `Keep 1 in ${tier.keepRatio} messages verbatim, summarize the rest`"
               >
                 <option v-for="ratio in keepRatios" :key="ratio" :value="ratio">
-                  {{ ratio === 0 ? 'None' : `1:${ratio}` }}
+                  {{ ratio === 0 ? 'None' : ratio === 1 ? 'All' : `1:${ratio}` }}
                 </option>
               </select>
               <select
@@ -612,8 +612,8 @@ const summarizationVersion = ref('');
 const summarizationPresets = ref(null);
 // 0 = passthrough (no LLM), 1 = verbosity reduction only (same message count)
 const compactionRatios = ref([0, 1, 2, 3, 4, 5, 10, 15, 20, 25, 35, 50]);
-// Keep ratios for hybrid mode: 0 = don't keep any, 5 = keep 1 in 5, etc.
-const keepRatios = ref([0, 5, 10, 20, 50]);
+// Keep ratios for hybrid mode: 0 = don't keep any, 1 = keep all, 2+ = keep 1 in N
+const keepRatios = ref([0, 1, 2, 3, 4, 5, 10, 20, 50]);
 const summarizationOptions = ref({
   compactionRatio: 10,
   aggressiveness: 'moderate',
