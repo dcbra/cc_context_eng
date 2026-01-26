@@ -1154,86 +1154,135 @@ export async function summarizeWithTiers(messages, options = {}) {
       // Phase 1: Select important messages to keep verbatim
       const selection = await selectImportantMessages(tier.messages, tier.keepRatio, { model });
 
-      console.log(`[Summarizer]   Kept ${selection.keptMessages.length} important messages verbatim`);
+      console.log(`[Summarizer]   Selected ${selection.keptMessages.length} important messages to keep verbatim`);
 
-      // Add kept messages as-is (marked as kept, not summarized)
-      const keptSummaries = [];
-      for (const msg of selection.keptMessages) {
-        keptSummaries.push({
-          role: msg.type,
-          summary: extractTextContent(msg),
-          _tierInfo: {
-            range: `${tier.startPercent}-${tier.endPercent}%`,
-            compactionRatio: tier.compactionRatio,
-            keepRatio: tier.keepRatio,
-            kept: true  // Mark as kept verbatim
-          },
-          _originalTimestamp: msg.timestamp  // Preserve for sorting
+      // Phase 2: Build intervals between kept messages and summarize each interval separately
+      // This preserves chronological order: [summary_before_keep1] [keep1] [summary_between_1_2] [keep2] ...
+
+      // Sort kept indices to build intervals
+      const sortedKeptIndices = [...selection.keptIndices].sort((a, b) => a - b);
+
+      // Build intervals: messages between each kept message
+      const intervals = [];
+      let prevEnd = 0;
+
+      for (const keptIdx of sortedKeptIndices) {
+        if (keptIdx > prevEnd) {
+          // Interval before this kept message
+          intervals.push({
+            type: 'summarize',
+            messages: tier.messages.slice(prevEnd, keptIdx),
+            startIdx: prevEnd,
+            endIdx: keptIdx
+          });
+        }
+        // The kept message itself
+        intervals.push({
+          type: 'keep',
+          message: tier.messages[keptIdx],
+          idx: keptIdx
+        });
+        prevEnd = keptIdx + 1;
+      }
+
+      // Any remaining messages after the last kept
+      if (prevEnd < tier.messages.length) {
+        intervals.push({
+          type: 'summarize',
+          messages: tier.messages.slice(prevEnd),
+          startIdx: prevEnd,
+          endIdx: tier.messages.length
         });
       }
 
-      // Phase 2: Summarize the remaining messages (if any and if compactionRatio > 1)
-      const summarizedSummaries = [];
-      if (selection.remainingMessages.length > 0 && tier.compactionRatio > 1) {
-        console.log(`[Summarizer]   Summarizing ${selection.remainingMessages.length} remaining messages with ratio ${tier.compactionRatio}`);
+      console.log(`[Summarizer]   Built ${intervals.length} intervals (${sortedKeptIndices.length} keeps, ${intervals.filter(i => i.type === 'summarize').length} summarize segments)`);
 
-        // Split remaining messages into chunks
-        const chunks = chunkArray(selection.remainingMessages, MAX_MESSAGES_PER_CHUNK);
+      // Process each interval in order
+      const combinedSummaries = [];
+      let totalSummarizedFrom = 0;
+      let totalSummarizedTo = 0;
 
-        for (let i = 0; i < chunks.length; i++) {
-          const chunk = chunks[i];
-          console.log(`[Summarizer]     Chunk ${i + 1}/${chunks.length}: ${chunk.length} messages`);
+      for (let intervalIdx = 0; intervalIdx < intervals.length; intervalIdx++) {
+        const interval = intervals[intervalIdx];
 
-          const prompt = buildSummarizationPrompt(chunk, {
-            compactionRatio: tier.compactionRatio,
-            aggressiveness: tier.aggressiveness,
-            preserveLinks,
-            preserveAskUserQuestion
-          });
-
-          const summaries = await callClaude(prompt, { model });
-
-          // Add tier info to each summary
-          summaries.forEach((s, idx) => {
-            s._tierInfo = {
-              range: `${tier.startPercent}-${tier.endPercent}%`,
-              compactionRatio: tier.compactionRatio,
-              keepRatio: tier.keepRatio,
-              chunk: i + 1,
-              summarized: true  // Mark as summarized
-            };
-            // Use chunk's first message timestamp for approximate ordering
-            s._originalTimestamp = chunk[0]?.timestamp;
-          });
-
-          summarizedSummaries.push(...summaries);
-          console.log(`[Summarizer]     Chunk ${i + 1} complete: ${chunk.length} -> ${summaries.length} messages`);
-        }
-      } else if (selection.remainingMessages.length > 0) {
-        // compactionRatio is 0 or 1, keep remaining as-is too
-        console.log(`[Summarizer]   Keeping ${selection.remainingMessages.length} remaining messages as-is (compactionRatio: ${tier.compactionRatio})`);
-        for (const msg of selection.remainingMessages) {
-          summarizedSummaries.push({
-            role: msg.type,
-            summary: extractTextContent(msg),
+        if (interval.type === 'keep') {
+          // Add kept message as-is
+          combinedSummaries.push({
+            role: interval.message.type,
+            summary: extractTextContent(interval.message),
             _tierInfo: {
               range: `${tier.startPercent}-${tier.endPercent}%`,
               compactionRatio: tier.compactionRatio,
               keepRatio: tier.keepRatio,
-              passthrough: true
+              kept: true
             },
-            _originalTimestamp: msg.timestamp
+            _originalTimestamp: interval.message.timestamp
           });
+        } else if (interval.type === 'summarize' && interval.messages.length > 0) {
+          totalSummarizedFrom += interval.messages.length;
+
+          if (tier.compactionRatio > 1) {
+            // Summarize this interval
+            console.log(`[Summarizer]     Interval ${intervalIdx + 1}: summarizing ${interval.messages.length} messages (indices ${interval.startIdx}-${interval.endIdx - 1})`);
+
+            // Split interval into chunks if needed
+            const chunks = chunkArray(interval.messages, MAX_MESSAGES_PER_CHUNK);
+
+            for (let i = 0; i < chunks.length; i++) {
+              const chunk = chunks[i];
+              if (chunks.length > 1) {
+                console.log(`[Summarizer]       Chunk ${i + 1}/${chunks.length}: ${chunk.length} messages`);
+              }
+
+              const prompt = buildSummarizationPrompt(chunk, {
+                compactionRatio: tier.compactionRatio,
+                aggressiveness: tier.aggressiveness,
+                preserveLinks,
+                preserveAskUserQuestion
+              });
+
+              const summaries = await callClaude(prompt, { model });
+
+              summaries.forEach((s) => {
+                s._tierInfo = {
+                  range: `${tier.startPercent}-${tier.endPercent}%`,
+                  compactionRatio: tier.compactionRatio,
+                  keepRatio: tier.keepRatio,
+                  interval: intervalIdx + 1,
+                  summarized: true
+                };
+                s._originalTimestamp = chunk[0]?.timestamp;
+              });
+
+              combinedSummaries.push(...summaries);
+              totalSummarizedTo += summaries.length;
+
+              if (chunks.length > 1) {
+                console.log(`[Summarizer]       Chunk ${i + 1} complete: ${chunk.length} -> ${summaries.length} messages`);
+              }
+            }
+
+            console.log(`[Summarizer]     Interval ${intervalIdx + 1} complete: ${interval.messages.length} -> ${chunks.reduce((acc, c) => acc, 0)} messages`);
+          } else {
+            // Passthrough - keep as-is
+            console.log(`[Summarizer]     Interval ${intervalIdx + 1}: keeping ${interval.messages.length} messages as-is (passthrough)`);
+            for (const msg of interval.messages) {
+              combinedSummaries.push({
+                role: msg.type,
+                summary: extractTextContent(msg),
+                _tierInfo: {
+                  range: `${tier.startPercent}-${tier.endPercent}%`,
+                  compactionRatio: tier.compactionRatio,
+                  keepRatio: tier.keepRatio,
+                  passthrough: true
+                },
+                _originalTimestamp: msg.timestamp
+              });
+              totalSummarizedTo++;
+            }
+          }
         }
       }
-
-      // Combine kept and summarized, then sort by original timestamp for chronological order
-      const combinedSummaries = [...keptSummaries, ...summarizedSummaries];
-      combinedSummaries.sort((a, b) => {
-        const tsA = a._originalTimestamp ? new Date(a._originalTimestamp) : 0;
-        const tsB = b._originalTimestamp ? new Date(b._originalTimestamp) : 0;
-        return tsA - tsB;
-      });
 
       allSummaries.push(...combinedSummaries);
       tierResults.push({
@@ -1243,13 +1292,14 @@ export async function summarizeWithTiers(messages, options = {}) {
         compactionRatio: tier.compactionRatio,
         keepRatio: tier.keepRatio,
         keptVerbatim: selection.keptMessages.length,
-        summarizedFrom: selection.remainingMessages.length,
-        summarizedTo: summarizedSummaries.length,
+        summarizedFrom: totalSummarizedFrom,
+        summarizedTo: totalSummarizedTo,
+        intervals: intervals.length,
         aggressiveness: tier.aggressiveness,
         hybrid: true
       });
 
-      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}% HYBRID complete: ${tier.messages.length} -> ${combinedSummaries.length} (kept: ${selection.keptMessages.length}, summarized: ${selection.remainingMessages.length} -> ${summarizedSummaries.length})`);
+      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}% HYBRID complete: ${tier.messages.length} -> ${combinedSummaries.length} (kept: ${selection.keptMessages.length}, summarized: ${totalSummarizedFrom} -> ${totalSummarizedTo}, intervals: ${intervals.length})`);
       continue;
     }
 
