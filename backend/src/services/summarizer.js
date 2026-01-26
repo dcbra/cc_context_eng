@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import { extractKeepitMarkers, stripKeepitMarkers } from './keepit-parser.js';
 import { shouldKeepitSurvive, previewDecay } from './keepit-decay.js';
 import { verifyKeepitPreservation, generateVerificationReport } from './keepit-verifier.js';
+import { hasAskUserQuestion } from './sanitizer.js';
 
 /**
  * AI-powered conversation summarizer using Claude CLI
@@ -717,9 +718,20 @@ export async function summarizeMessages(messages, options = {}) {
     preserveAskUserQuestion = true  // Preserve user interaction questions
   } = options;
 
-  // Filter to only user/assistant text messages and sort by timestamp
+  // Filter to conversation messages and sort by timestamp
+  // Include AskUserQuestion tool calls if preserveAskUserQuestion is enabled
   const conversationMessages = messages
-    .filter(m => (m.type === 'user' || m.type === 'assistant') && extractTextContent(m).trim())
+    .filter(m => {
+      // Always include user/assistant messages with text
+      if ((m.type === 'user' || m.type === 'assistant') && extractTextContent(m).trim()) {
+        return true;
+      }
+      // Include AskUserQuestion tool calls if option is enabled
+      if (preserveAskUserQuestion && hasAskUserQuestion(m)) {
+        return true;
+      }
+      return false;
+    })
     .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
 
   if (conversationMessages.length < 2) {
@@ -1037,9 +1049,20 @@ export async function summarizeWithTiers(messages, options = {}) {
     ? TIER_PRESETS[tierPreset]
     : tiers;
 
-  // Filter to only user/assistant text messages and sort by timestamp
+  // Filter to conversation messages and sort by timestamp
+  // Include AskUserQuestion tool calls if preserveAskUserQuestion is enabled
   const conversationMessages = messages
-    .filter(m => (m.type === 'user' || m.type === 'assistant') && extractTextContent(m).trim())
+    .filter(m => {
+      // Always include user/assistant messages with text
+      if ((m.type === 'user' || m.type === 'assistant') && extractTextContent(m).trim()) {
+        return true;
+      }
+      // Include AskUserQuestion tool calls if option is enabled
+      if (preserveAskUserQuestion && hasAskUserQuestion(m)) {
+        return true;
+      }
+      return false;
+    })
     .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
 
   if (conversationMessages.length < 2) {

@@ -265,7 +265,7 @@ function removeFileContent(messages, filesToRemove) {
 /**
  * Check if a message contains an AskUserQuestion tool call or result
  */
-function hasAskUserQuestion(message) {
+export function hasAskUserQuestion(message) {
   const content = Array.isArray(message.content) ? message.content : [];
 
   // Check for AskUserQuestion tool_use
