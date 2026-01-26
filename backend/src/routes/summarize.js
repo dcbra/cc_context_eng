@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import os from 'os';
 import fs from 'fs-extra';
-import { summarizeMessages, summarizeAndIntegrate, summarizeWithTiers, summarizeAndIntegrateWithTiers, TIER_PRESETS, DEFAULT_TIERS, COMPACTION_RATIOS } from '../services/summarizer.js';
+import { summarizeMessages, summarizeAndIntegrate, summarizeWithTiers, summarizeAndIntegrateWithTiers, TIER_PRESETS, DEFAULT_TIERS, COMPACTION_RATIOS, KEEP_RATIOS } from '../services/summarizer.js';
 import { parseJsonlFile, getMessageOrder } from '../services/jsonl-parser.js';
 import { sessionToJsonl, extractAndReplaceImages, findDuplicateMessages, deduplicateMessages } from '../services/sanitizer.js';
 import { createBackup } from '../services/backup-manager.js';
@@ -477,6 +477,7 @@ router.get('/presets', (req, res) => {
     },
     defaultTiers: DEFAULT_TIERS,
     compactionRatios: COMPACTION_RATIOS,
+    keepRatios: KEEP_RATIOS,
     tierRanges: ['0-25%', '25-50%', '50-75%', '75-90%', '90-100%']
   });
 });

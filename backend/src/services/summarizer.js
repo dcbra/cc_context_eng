@@ -36,6 +36,9 @@ const COMPACTION_RATIOS = [0, 1, 2, 3, 4, 5, 10, 15, 20, 25, 35, 50];
 // Maximum messages per chunk to avoid timeout
 const MAX_MESSAGES_PER_CHUNK = 30;
 
+// Available keep ratios for hybrid mode
+const KEEP_RATIOS = [0, 5, 10, 20, 50];
+
 // Default tier presets for variable compaction (5 tiers)
 const DEFAULT_TIERS = [
   { endPercent: 25, compactionRatio: 35, aggressiveness: 'aggressive' },   // 0-25%: oldest, compress most
@@ -361,6 +364,188 @@ async function callClaude(prompt, options = {}) {
     claude.stdin.write(prompt);
     claude.stdin.end();
     console.log(`[Summarizer] Prompt sent, waiting for response...`);
+  });
+}
+
+/**
+ * Build prompt for selecting important messages to keep verbatim
+ */
+function buildSelectionPrompt(messages, keepCount) {
+  // Format messages with indices
+  const formattedMessages = messages.map((msg, idx) => {
+    const role = msg.type === 'user' ? 'USER' : 'ASSISTANT';
+    const text = extractTextContent(msg);
+    const timestamp = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : 'unknown';
+    // Truncate very long messages for the selection prompt
+    const truncatedText = text.length > 500 ? text.substring(0, 500) + '...' : text;
+    return `[${idx}] ${role} (${timestamp}):\n${truncatedText}`;
+  }).join('\n\n---\n\n');
+
+  return `You are analyzing a conversation to identify the most important messages to preserve verbatim.
+
+Select exactly ${keepCount} messages that should be kept EXACTLY as-is (not summarized). Choose messages that:
+- Contain critical decisions, conclusions, or final solutions
+- Include essential code snippets, commands, or technical configurations
+- Have key findings that are referenced later in the conversation
+- Represent important user requirements, specifications, or constraints
+- Contain file paths, URLs, or references that must be preserved exactly
+
+## Critical Constraints:
+- Output MUST be a raw JSON array of message indices (0-based), nothing else
+- Select EXACTLY ${keepCount} indices
+- Return ONLY the JSON array, no explanation or markdown
+
+## Messages (${messages.length} total):
+
+${formattedMessages}
+
+---
+
+Return a JSON array of exactly ${keepCount} indices (0-based) to keep verbatim:`;
+}
+
+/**
+ * Select the most important messages to keep verbatim using LLM
+ */
+async function selectImportantMessages(messages, keepRatio, options = {}) {
+  const { model = 'opus', timeout = 120000 } = options;
+
+  // Calculate how many messages to keep
+  const keepCount = Math.max(1, Math.floor(messages.length / keepRatio));
+
+  console.log(`[Summarizer] Selecting ${keepCount} important messages from ${messages.length} (keepRatio: ${keepRatio})`);
+
+  if (keepCount >= messages.length) {
+    // Keep all messages - no selection needed
+    return {
+      keptMessages: messages,
+      keptIndices: messages.map((_, i) => i),
+      remainingMessages: [],
+      remainingIndices: []
+    };
+  }
+
+  // Build and send prompt to LLM
+  const prompt = buildSelectionPrompt(messages, keepCount);
+
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-p',
+      '--dangerously-skip-permissions',
+      '--model', model,
+      '--output-format', 'json'
+    ];
+
+    const configDir = process.env.CLAUDE_CONFIG_DIR || `${process.env.HOME}/.claude`;
+
+    console.log(`[Summarizer] Calling Claude for message selection...`);
+
+    const claude = spawn('claude', args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, CLAUDE_CONFIG_DIR: configDir }
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    claude.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    claude.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    const timer = setTimeout(() => {
+      claude.kill('SIGTERM');
+      reject(new Error(`Selection timed out after ${timeout}ms`));
+    }, timeout);
+
+    claude.on('close', (code) => {
+      clearTimeout(timer);
+
+      if (code !== 0) {
+        reject(new Error(`Claude CLI exited with code ${code}: ${stderr}`));
+        return;
+      }
+
+      try {
+        const response = JSON.parse(stdout);
+        let resultText = response.result;
+
+        if (!resultText) {
+          reject(new Error('No result field in Claude response'));
+          return;
+        }
+
+        resultText = resultText.trim();
+
+        // Try to find JSON array in markdown code block first
+        const jsonBlockMatch = resultText.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (jsonBlockMatch) {
+          resultText = jsonBlockMatch[1].trim();
+        }
+
+        // If still not valid JSON, try to find the array directly
+        if (!resultText.startsWith('[')) {
+          const arrayStart = resultText.indexOf('[');
+          const arrayEnd = resultText.lastIndexOf(']');
+          if (arrayStart !== -1 && arrayEnd !== -1 && arrayEnd > arrayStart) {
+            resultText = resultText.slice(arrayStart, arrayEnd + 1);
+          }
+        }
+
+        const keptIndices = JSON.parse(resultText);
+
+        if (!Array.isArray(keptIndices)) {
+          reject(new Error('Expected JSON array of indices'));
+          return;
+        }
+
+        // Validate and filter indices
+        const validIndices = keptIndices
+          .filter(i => typeof i === 'number' && i >= 0 && i < messages.length)
+          .map(i => Math.floor(i));
+
+        // Remove duplicates and sort
+        const uniqueIndices = [...new Set(validIndices)].sort((a, b) => a - b);
+
+        console.log(`[Summarizer] LLM selected ${uniqueIndices.length} messages to keep: [${uniqueIndices.join(', ')}]`);
+
+        // Split messages into kept and remaining
+        const keptSet = new Set(uniqueIndices);
+        const keptMessages = [];
+        const remainingMessages = [];
+        const remainingIndices = [];
+
+        messages.forEach((msg, idx) => {
+          if (keptSet.has(idx)) {
+            keptMessages.push(msg);
+          } else {
+            remainingMessages.push(msg);
+            remainingIndices.push(idx);
+          }
+        });
+
+        resolve({
+          keptMessages,
+          keptIndices: uniqueIndices,
+          remainingMessages,
+          remainingIndices
+        });
+
+      } catch (parseError) {
+        reject(new Error(`Failed to parse selection response: ${parseError.message}`));
+      }
+    });
+
+    claude.on('error', (err) => {
+      clearTimeout(timer);
+      reject(new Error(`Failed to spawn Claude CLI: ${err.message}`));
+    });
+
+    claude.stdin.write(prompt);
+    claude.stdin.end();
   });
 }
 
@@ -819,7 +1004,8 @@ function splitIntoTiers(messages, tiers) {
         startPercent,
         endPercent: tier.endPercent,
         compactionRatio: tier.compactionRatio,
-        aggressiveness: tier.aggressiveness
+        aggressiveness: tier.aggressiveness,
+        keepRatio: tier.keepRatio || 0  // Include keepRatio for hybrid mode
       });
     }
 
@@ -862,13 +1048,37 @@ export async function summarizeWithTiers(messages, options = {}) {
 
   if (dryRun) {
     // Return preview info without calling Claude
-    const tierPreviews = tierData.map(tier => ({
-      range: `${tier.startPercent}-${tier.endPercent}%`,
-      inputMessages: tier.messages.length,
-      estimatedOutputMessages: Math.max(1, Math.ceil(tier.messages.length / tier.compactionRatio)),
-      compactionRatio: tier.compactionRatio,
-      aggressiveness: tier.aggressiveness
-    }));
+    const tierPreviews = tierData.map(tier => {
+      const preview = {
+        range: `${tier.startPercent}-${tier.endPercent}%`,
+        inputMessages: tier.messages.length,
+        compactionRatio: tier.compactionRatio,
+        aggressiveness: tier.aggressiveness
+      };
+
+      // Handle hybrid mode (keepRatio > 0)
+      if (tier.keepRatio && tier.keepRatio > 0) {
+        const keptCount = Math.max(1, Math.floor(tier.messages.length / tier.keepRatio));
+        const remainingCount = tier.messages.length - keptCount;
+        const summarizedCount = tier.compactionRatio > 1
+          ? Math.max(1, Math.ceil(remainingCount / tier.compactionRatio))
+          : remainingCount;
+        preview.estimatedOutputMessages = keptCount + summarizedCount;
+        preview.keepRatio = tier.keepRatio;
+        preview.estimatedKept = keptCount;
+        preview.estimatedSummarized = summarizedCount;
+        preview.hybrid = true;
+      } else if (tier.compactionRatio === 0) {
+        // Passthrough mode
+        preview.estimatedOutputMessages = tier.messages.length;
+        preview.passthrough = true;
+      } else {
+        // Standard summarization
+        preview.estimatedOutputMessages = Math.max(1, Math.ceil(tier.messages.length / tier.compactionRatio));
+      }
+
+      return preview;
+    });
 
     const totalInput = tierPreviews.reduce((sum, t) => sum + t.inputMessages, 0);
     const totalOutput = tierPreviews.reduce((sum, t) => sum + t.estimatedOutputMessages, 0);
@@ -934,6 +1144,113 @@ export async function summarizeWithTiers(messages, options = {}) {
       continue;
     }
 
+    // Handle hybrid mode (keepRatio > 0) - keep important messages, summarize the rest
+    if (tier.keepRatio && tier.keepRatio > 0) {
+      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}%: HYBRID MODE (keepRatio: ${tier.keepRatio}, summarizeRatio: ${tier.compactionRatio})`);
+
+      // Phase 1: Select important messages to keep verbatim
+      const selection = await selectImportantMessages(tier.messages, tier.keepRatio, { model });
+
+      console.log(`[Summarizer]   Kept ${selection.keptMessages.length} important messages verbatim`);
+
+      // Add kept messages as-is (marked as kept, not summarized)
+      const keptSummaries = [];
+      for (const msg of selection.keptMessages) {
+        keptSummaries.push({
+          role: msg.type,
+          summary: extractTextContent(msg),
+          _tierInfo: {
+            range: `${tier.startPercent}-${tier.endPercent}%`,
+            compactionRatio: tier.compactionRatio,
+            keepRatio: tier.keepRatio,
+            kept: true  // Mark as kept verbatim
+          },
+          _originalTimestamp: msg.timestamp  // Preserve for sorting
+        });
+      }
+
+      // Phase 2: Summarize the remaining messages (if any and if compactionRatio > 1)
+      const summarizedSummaries = [];
+      if (selection.remainingMessages.length > 0 && tier.compactionRatio > 1) {
+        console.log(`[Summarizer]   Summarizing ${selection.remainingMessages.length} remaining messages with ratio ${tier.compactionRatio}`);
+
+        // Split remaining messages into chunks
+        const chunks = chunkArray(selection.remainingMessages, MAX_MESSAGES_PER_CHUNK);
+
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          console.log(`[Summarizer]     Chunk ${i + 1}/${chunks.length}: ${chunk.length} messages`);
+
+          const prompt = buildSummarizationPrompt(chunk, {
+            compactionRatio: tier.compactionRatio,
+            aggressiveness: tier.aggressiveness,
+            preserveLinks,
+            preserveAskUserQuestion
+          });
+
+          const summaries = await callClaude(prompt, { model });
+
+          // Add tier info to each summary
+          summaries.forEach((s, idx) => {
+            s._tierInfo = {
+              range: `${tier.startPercent}-${tier.endPercent}%`,
+              compactionRatio: tier.compactionRatio,
+              keepRatio: tier.keepRatio,
+              chunk: i + 1,
+              summarized: true  // Mark as summarized
+            };
+            // Use chunk's first message timestamp for approximate ordering
+            s._originalTimestamp = chunk[0]?.timestamp;
+          });
+
+          summarizedSummaries.push(...summaries);
+          console.log(`[Summarizer]     Chunk ${i + 1} complete: ${chunk.length} -> ${summaries.length} messages`);
+        }
+      } else if (selection.remainingMessages.length > 0) {
+        // compactionRatio is 0 or 1, keep remaining as-is too
+        console.log(`[Summarizer]   Keeping ${selection.remainingMessages.length} remaining messages as-is (compactionRatio: ${tier.compactionRatio})`);
+        for (const msg of selection.remainingMessages) {
+          summarizedSummaries.push({
+            role: msg.type,
+            summary: extractTextContent(msg),
+            _tierInfo: {
+              range: `${tier.startPercent}-${tier.endPercent}%`,
+              compactionRatio: tier.compactionRatio,
+              keepRatio: tier.keepRatio,
+              passthrough: true
+            },
+            _originalTimestamp: msg.timestamp
+          });
+        }
+      }
+
+      // Combine kept and summarized, then sort by original timestamp for chronological order
+      const combinedSummaries = [...keptSummaries, ...summarizedSummaries];
+      combinedSummaries.sort((a, b) => {
+        const tsA = a._originalTimestamp ? new Date(a._originalTimestamp) : 0;
+        const tsB = b._originalTimestamp ? new Date(b._originalTimestamp) : 0;
+        return tsA - tsB;
+      });
+
+      allSummaries.push(...combinedSummaries);
+      tierResults.push({
+        range: `${tier.startPercent}-${tier.endPercent}%`,
+        inputMessages: tier.messages.length,
+        outputMessages: combinedSummaries.length,
+        compactionRatio: tier.compactionRatio,
+        keepRatio: tier.keepRatio,
+        keptVerbatim: selection.keptMessages.length,
+        summarizedFrom: selection.remainingMessages.length,
+        summarizedTo: summarizedSummaries.length,
+        aggressiveness: tier.aggressiveness,
+        hybrid: true
+      });
+
+      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}% HYBRID complete: ${tier.messages.length} -> ${combinedSummaries.length} (kept: ${selection.keptMessages.length}, summarized: ${selection.remainingMessages.length} -> ${summarizedSummaries.length})`);
+      continue;
+    }
+
+    // Standard summarization (no keepRatio)
     // Split tier into chunks to avoid timeout
     const chunks = chunkArray(tier.messages, MAX_MESSAGES_PER_CHUNK);
     const tierSummaries = [];
@@ -1110,7 +1427,9 @@ export {
   buildSummarizationPrompt,
   AGGRESSIVENESS_PROMPTS,
   COMPACTION_RATIOS,
+  KEEP_RATIOS,
   DEFAULT_TIERS,
   TIER_PRESETS,
-  splitIntoTiers
+  splitIntoTiers,
+  selectImportantMessages
 };

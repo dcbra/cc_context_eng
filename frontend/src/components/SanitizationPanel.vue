@@ -386,6 +386,7 @@
           <div v-if="summarizationOptions.tierPreset === 'custom'" class="custom-tiers">
             <div class="custom-tiers-header">
               <span class="header-range">Range</span>
+              <span class="header-keep">Keep</span>
               <span class="header-ratio">Ratio</span>
               <span class="header-level">Level</span>
             </div>
@@ -394,12 +395,22 @@
                 {{ idx === 0 ? '0' : summarizationOptions.customTiers[idx-1].endPercent }}-{{ tier.endPercent }}%
               </span>
               <select
+                :value="tier.keepRatio || 0"
+                @change="updateCustomTier(idx, 'keepRatio', Number($event.target.value))"
+                class="tier-select tier-select-keep"
+                :title="tier.keepRatio > 0 ? `Keep 1 in ${tier.keepRatio} messages verbatim, summarize the rest` : 'No hybrid mode - summarize all'"
+              >
+                <option v-for="ratio in keepRatios" :key="ratio" :value="ratio">
+                  {{ ratio === 0 ? 'None' : `1:${ratio}` }}
+                </option>
+              </select>
+              <select
                 :value="tier.compactionRatio"
                 @change="updateCustomTier(idx, 'compactionRatio', Number($event.target.value))"
                 class="tier-select"
               >
                 <option v-for="ratio in compactionRatios" :key="ratio" :value="ratio">
-                  {{ ratio === 0 ? 'Passthrough' : ratio === 1 ? '1:1 Verbosity' : `${ratio}:1` }}
+                  {{ ratio === 0 ? 'Pass' : ratio === 1 ? '1:1' : `${ratio}:1` }}
                 </option>
               </select>
               <select
@@ -407,10 +418,17 @@
                 @change="updateCustomTier(idx, 'aggressiveness', $event.target.value)"
                 class="tier-select"
               >
-                <option value="minimal">Minimal</option>
-                <option value="moderate">Moderate</option>
-                <option value="aggressive">Aggressive</option>
+                <option value="minimal">Min</option>
+                <option value="moderate">Mod</option>
+                <option value="aggressive">Agg</option>
               </select>
+            </div>
+            <div class="hybrid-hint">
+              <span class="hint-icon">i</span>
+              <span class="hint-text">
+                <strong>Keep:</strong> LLM selects important messages to preserve verbatim.
+                <strong>Ratio:</strong> Remaining messages are compressed.
+              </span>
             </div>
           </div>
         </div>
@@ -508,7 +526,12 @@
             <div class="tier-preview-header">Compression by tier:</div>
             <div v-for="(tier, idx) in summarizationPreview.tiers" :key="idx" class="tier-preview-row">
               <span class="tier-preview-range">{{ tier.range }}</span>
-              <span class="tier-preview-ratio">{{ tier.compactionRatio }}:1</span>
+              <span v-if="tier.hybrid" class="tier-preview-hybrid">
+                <span class="hybrid-badge">Hybrid</span>
+                <span class="tier-preview-details-text">keep {{ tier.estimatedKept }}, {{ tier.compactionRatio }}:1</span>
+              </span>
+              <span v-else-if="tier.passthrough" class="tier-preview-passthrough">Pass</span>
+              <span v-else class="tier-preview-ratio">{{ tier.compactionRatio }}:1</span>
               <span class="tier-preview-count">{{ tier.inputMessages }} → {{ tier.estimatedOutputMessages }}</span>
             </div>
           </div>
@@ -589,6 +612,8 @@ const summarizationVersion = ref('');
 const summarizationPresets = ref(null);
 // 0 = passthrough (no LLM), 1 = verbosity reduction only (same message count)
 const compactionRatios = ref([0, 1, 2, 3, 4, 5, 10, 15, 20, 25, 35, 50]);
+// Keep ratios for hybrid mode: 0 = don't keep any, 5 = keep 1 in 5, etc.
+const keepRatios = ref([0, 5, 10, 20, 50]);
 const summarizationOptions = ref({
   compactionRatio: 10,
   aggressiveness: 'moderate',
@@ -597,11 +622,11 @@ const summarizationOptions = ref({
   useTiers: false,
   tierPreset: 'standard',
   customTiers: [
-    { endPercent: 25, compactionRatio: 35, aggressiveness: 'aggressive' },
-    { endPercent: 50, compactionRatio: 20, aggressiveness: 'aggressive' },
-    { endPercent: 75, compactionRatio: 10, aggressiveness: 'moderate' },
-    { endPercent: 90, compactionRatio: 5, aggressiveness: 'moderate' },
-    { endPercent: 100, compactionRatio: 3, aggressiveness: 'minimal' }
+    { endPercent: 25, compactionRatio: 35, aggressiveness: 'aggressive', keepRatio: 0 },
+    { endPercent: 50, compactionRatio: 20, aggressiveness: 'aggressive', keepRatio: 0 },
+    { endPercent: 75, compactionRatio: 10, aggressiveness: 'moderate', keepRatio: 0 },
+    { endPercent: 90, compactionRatio: 5, aggressiveness: 'moderate', keepRatio: 0 },
+    { endPercent: 100, compactionRatio: 3, aggressiveness: 'minimal', keepRatio: 0 }
   ],
   // Skip first N messages (for pasted context from previous sessions)
   skipFirstMessages: 0,
@@ -804,6 +829,9 @@ async function checkClaudeAvailability() {
       summarizationPresets.value = presetsData.presets;
       if (presetsData.compactionRatios) {
         compactionRatios.value = presetsData.compactionRatios;
+      }
+      if (presetsData.keepRatios) {
+        keepRatios.value = presetsData.keepRatios;
       }
     }
   } catch (err) {
@@ -2359,8 +2387,12 @@ async function saveToMemory(summarizationResult) {
   min-width: 70px;
 }
 
+.header-keep {
+  min-width: 55px;
+}
+
 .header-ratio {
-  min-width: 70px;
+  min-width: 55px;
 }
 
 .header-level {
@@ -2557,5 +2589,75 @@ async function saveToMemory(summarizationResult) {
 
 .memory-error-banner .error-icon {
   font-size: 1rem;
+}
+
+/* Hybrid mode styles */
+.tier-select-keep {
+  min-width: 55px;
+}
+
+.hybrid-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 1px solid #7dd3fc;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #0369a1;
+}
+
+.hybrid-hint .hint-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: #0ea5e9;
+  color: white;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 0.65rem;
+  flex-shrink: 0;
+}
+
+.hybrid-hint .hint-text {
+  line-height: 1.4;
+}
+
+.hybrid-hint .hint-text strong {
+  color: #0284c7;
+}
+
+.tier-preview-hybrid {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.hybrid-badge {
+  padding: 0.125rem 0.375rem;
+  background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+  color: white;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.tier-preview-details-text {
+  font-size: 0.75rem;
+  color: #7c3aed;
+}
+
+.tier-preview-passthrough {
+  padding: 0.125rem 0.375rem;
+  background: #e2e8f0;
+  color: #475569;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 </style>
