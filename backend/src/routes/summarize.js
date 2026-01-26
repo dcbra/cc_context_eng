@@ -264,6 +264,9 @@ router.post('/:sessionId/apply', async (req, res, next) => {
         : (tiers || DEFAULT_TIERS);
 
       console.log(`[Summarize API] Using tiered compaction with ${effectiveTiers.length} tiers`);
+      effectiveTiers.forEach((t, i) => {
+        console.log(`[Summarize API]   Tier ${i + 1}: ${t.endPercent}% - keepRatio: ${t.keepRatio || 0}, compactionRatio: ${t.compactionRatio}, aggressiveness: ${t.aggressiveness}`);
+      });
       result = await summarizeAndIntegrateWithTiers(cleanedParsed, cleanedTargetUuids, {
         tiers: effectiveTiers,
         tierPreset,
