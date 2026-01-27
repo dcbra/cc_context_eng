@@ -411,13 +411,14 @@ Return a JSON array of exactly ${keepCount} indices (0-based) to keep verbatim:`
 /**
  * Select the most important messages to keep verbatim using LLM
  */
-async function selectImportantMessages(messages, keepRatio, options = {}) {
+async function selectImportantMessages(messages, keepPercent, options = {}) {
   const { model = 'opus', timeout = 120000 } = options;
 
-  // Calculate how many messages to keep
-  const keepCount = Math.max(1, Math.floor(messages.length / keepRatio));
+  // Calculate how many messages to keep (exact percentage, no rounding errors)
+  const keepCount = Math.max(1, Math.floor(messages.length * keepPercent / 100));
 
-  console.log(`[Summarizer] Selecting ${keepCount} important messages from ${messages.length} (keepRatio: ${keepRatio})`);
+  console.log(`[Summarizer] Selecting ${keepCount} important messages from ${messages.length} (keepPercent: ${keepPercent}%)`);
+
 
   if (keepCount >= messages.length) {
     // Keep all messages - no selection needed
@@ -1020,7 +1021,7 @@ function splitIntoTiers(messages, tiers) {
         endPercent: tier.endPercent,
         compactionRatio: tier.compactionRatio,
         aggressiveness: tier.aggressiveness,
-        keepRatio: tier.keepRatio || 0  // Include keepRatio for hybrid mode
+        keepPercent: tier.keepPercent || 0  // Include keepPercent for hybrid mode
       });
     }
 
@@ -1082,15 +1083,15 @@ export async function summarizeWithTiers(messages, options = {}) {
         aggressiveness: tier.aggressiveness
       };
 
-      // Handle hybrid mode (keepRatio > 0)
-      if (tier.keepRatio && tier.keepRatio > 0) {
-        const keptCount = Math.max(1, Math.floor(tier.messages.length / tier.keepRatio));
+      // Handle hybrid mode (keepPercent > 0)
+      if (tier.keepPercent && tier.keepPercent > 0) {
+        const keptCount = Math.max(1, Math.floor(tier.messages.length * tier.keepPercent / 100));
         const remainingCount = tier.messages.length - keptCount;
-        const summarizedCount = tier.compactionRatio > 1
-          ? Math.max(1, Math.ceil(remainingCount / tier.compactionRatio))
-          : remainingCount;
+        const summarizedCount = tier.compactionRatio > 0
+          ? (tier.compactionRatio === 1 ? remainingCount : Math.max(1, Math.ceil(remainingCount / tier.compactionRatio)))
+          : 0;  // compactionRatio 0 = Remove = discard remaining
         preview.estimatedOutputMessages = keptCount + summarizedCount;
-        preview.keepRatio = tier.keepRatio;
+        preview.keepPercent = tier.keepPercent;
         preview.estimatedKept = keptCount;
         preview.estimatedSummarized = summarizedCount;
         preview.hybrid = true;
@@ -1144,13 +1145,13 @@ export async function summarizeWithTiers(messages, options = {}) {
       continue;
     }
 
-    // Handle hybrid mode (keepRatio > 0) - LLM selects important messages to keep
+    // Handle hybrid mode (keepPercent > 0) - LLM selects important messages to keep
     // Check this BEFORE passthrough since user may want LLM selection + discard (not summarize) the rest
-    if (tier.keepRatio && tier.keepRatio > 0) {
-      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}%: HYBRID MODE (keepRatio: ${tier.keepRatio}, summarizeRatio: ${tier.compactionRatio})`);
+    if (tier.keepPercent && tier.keepPercent > 0) {
+      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}%: HYBRID MODE (keepPercent: ${tier.keepPercent}%, summarizeRatio: ${tier.compactionRatio})`);
 
       // Phase 1: Select important messages to keep verbatim
-      const selection = await selectImportantMessages(tier.messages, tier.keepRatio, { model });
+      const selection = await selectImportantMessages(tier.messages, tier.keepPercent, { model });
 
       console.log(`[Summarizer]   Selected ${selection.keptMessages.length} important messages to keep verbatim`);
 
@@ -1223,7 +1224,7 @@ export async function summarizeWithTiers(messages, options = {}) {
             _tierInfo: {
               range: `${tier.startPercent}-${tier.endPercent}%`,
               compactionRatio: tier.compactionRatio,
-              keepRatio: tier.keepRatio,
+              keepPercent: tier.keepPercent,
               kept: true
             },
             _originalTimestamp: interval.message.timestamp
@@ -1261,7 +1262,7 @@ export async function summarizeWithTiers(messages, options = {}) {
                 s._tierInfo = {
                   range: `${tier.startPercent}-${tier.endPercent}%`,
                   compactionRatio: tier.compactionRatio,
-                  keepRatio: tier.keepRatio,
+                  keepPercent: tier.keepPercent,
                   interval: intervalIdx + 1,
                   summarized: true
                 };
@@ -1288,7 +1289,7 @@ export async function summarizeWithTiers(messages, options = {}) {
         inputMessages: tier.messages.length,
         outputMessages: combinedSummaries.length,
         compactionRatio: tier.compactionRatio,
-        keepRatio: tier.keepRatio,
+        keepPercent: tier.keepPercent,
         keptVerbatim: selection.keptMessages.length,
         summarizedFrom: totalSummarizedFrom,
         summarizedTo: totalSummarizedTo,
@@ -1301,7 +1302,7 @@ export async function summarizeWithTiers(messages, options = {}) {
       continue;
     }
 
-    // Handle passthrough (ratio 0, no keepRatio) - no LLM processing, keep messages as-is
+    // Handle passthrough (ratio 0, no keepPercent) - no LLM processing, keep messages as-is
     if (tier.compactionRatio === 0) {
       console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}%: PASSTHROUGH (${tier.messages.length} messages kept as-is)`);
 
@@ -1328,7 +1329,7 @@ export async function summarizeWithTiers(messages, options = {}) {
       continue;
     }
 
-    // Standard summarization (no keepRatio)
+    // Standard summarization (no keepPercent)
     // Check if we need to preserve AskUserQuestion messages as interval boundaries
     const askUserIndices = [];
     if (preserveAskUserQuestion) {

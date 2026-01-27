@@ -663,13 +663,14 @@ function keepRatioToKeepPercent(keepRatio) {
   return Math.round(100 / keepRatio);
 }
 
-// Convert custom tiers from frontend format (keepPercent) to backend format (keepRatio)
+// Convert custom tiers from frontend format to backend format
+// Pass keepPercent directly for precise calculation (no rounding errors)
 function convertTiersForBackend(tiers) {
   return tiers.map(tier => ({
     endPercent: tier.endPercent,
     compactionRatio: tier.compactionRatio,
     aggressiveness: tier.aggressiveness,
-    keepRatio: keepPercentToKeepRatio(tier.keepPercent ?? 0)
+    keepPercent: tier.keepPercent ?? 0  // Pass percentage directly, backend calculates exact count
   }));
 }
 const summarizationOptions = ref({
