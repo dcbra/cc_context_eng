@@ -413,7 +413,7 @@
                 class="tier-select"
               >
                 <option v-for="ratio in compactionRatios" :key="ratio" :value="ratio">
-                  {{ ratio === 0 ? 'Pass' : ratio === 1 ? '1:1' : `${ratio}:1` }}
+                  {{ ratio === 0 ? 'Remove' : ratio === 1 ? '1:1' : `${ratio}:1` }}
                 </option>
               </select>
               <select
@@ -429,8 +429,8 @@
             <div class="hybrid-hint">
               <span class="hint-icon">i</span>
               <span class="hint-text">
-                <strong>Reduce:</strong> Percentage of messages to remove (LLM selects which to keep verbatim).
-                <strong>Ratio:</strong> Remaining messages are compressed.
+                <strong>Reduce:</strong> LLM selects important messages to keep verbatim.
+                <strong>Ratio:</strong> What to do with non-kept messages (Remove = delete, 1:1 = reduce verbosity, N:1 = summarize).
               </span>
             </div>
           </div>
@@ -531,7 +531,7 @@
               <span class="tier-preview-range">{{ tier.range }}</span>
               <span v-if="tier.hybrid" class="tier-preview-hybrid">
                 <span class="hybrid-badge">Hybrid</span>
-                <span class="tier-preview-details-text">{{ getReductionDisplayText(tier.reductionPercent || keepRatioToReductionPercent(tier.keepRatio || 1)) }}, {{ tier.compactionRatio }}:1</span>
+                <span class="tier-preview-details-text">{{ getReductionDisplayText(tier.reductionPercent || keepRatioToReductionPercent(tier.keepRatio || 1)) }}, {{ tier.compactionRatio === 0 ? 'Remove rest' : tier.compactionRatio + ':1' }}</span>
               </span>
               <span v-else-if="tier.passthrough" class="tier-preview-passthrough">Pass</span>
               <span v-else class="tier-preview-ratio">{{ tier.compactionRatio }}:1</span>

@@ -1144,33 +1144,8 @@ export async function summarizeWithTiers(messages, options = {}) {
       continue;
     }
 
-    // Handle passthrough (ratio 0) - no LLM processing, keep messages as-is
-    if (tier.compactionRatio === 0) {
-      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}%: PASSTHROUGH (${tier.messages.length} messages kept as-is)`);
-
-      for (const msg of tier.messages) {
-        allSummaries.push({
-          role: msg.type,
-          summary: extractTextContent(msg),
-          _tierInfo: {
-            range: `${tier.startPercent}-${tier.endPercent}%`,
-            compactionRatio: 0,
-            passthrough: true
-          }
-        });
-      }
-
-      tierResults.push({
-        range: `${tier.startPercent}-${tier.endPercent}%`,
-        inputMessages: tier.messages.length,
-        outputMessages: tier.messages.length,
-        compactionRatio: 0,
-        passthrough: true
-      });
-      continue;
-    }
-
-    // Handle hybrid mode (keepRatio > 0) - keep important messages, summarize the rest
+    // Handle hybrid mode (keepRatio > 0) - LLM selects important messages to keep
+    // Check this BEFORE passthrough since user may want LLM selection + discard (not summarize) the rest
     if (tier.keepRatio && tier.keepRatio > 0) {
       console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}%: HYBRID MODE (keepRatio: ${tier.keepRatio}, summarizeRatio: ${tier.compactionRatio})`);
 
@@ -1256,8 +1231,12 @@ export async function summarizeWithTiers(messages, options = {}) {
         } else if (interval.type === 'summarize' && interval.messages.length > 0) {
           totalSummarizedFrom += interval.messages.length;
 
-          if (tier.compactionRatio > 1) {
-            // Summarize this interval
+          if (tier.compactionRatio === 0) {
+            // Discard non-selected messages (user chose "Remove" option)
+            console.log(`[Summarizer]     Interval ${intervalIdx + 1}: discarding ${interval.messages.length} non-selected messages`);
+            // Don't add anything - these messages are removed
+          } else if (tier.compactionRatio >= 1) {
+            // Summarize this interval (ratio 1 = verbosity reduction, ratio 2+ = summarization)
             console.log(`[Summarizer]     Interval ${intervalIdx + 1}: summarizing ${interval.messages.length} messages (indices ${interval.startIdx}-${interval.endIdx - 1})`);
 
             // Split interval into chunks if needed
@@ -1298,24 +1277,8 @@ export async function summarizeWithTiers(messages, options = {}) {
             }
 
             console.log(`[Summarizer]     Interval ${intervalIdx + 1} complete: ${interval.messages.length} -> ${chunks.reduce((acc, c) => acc, 0)} messages`);
-          } else {
-            // Passthrough - keep as-is
-            console.log(`[Summarizer]     Interval ${intervalIdx + 1}: keeping ${interval.messages.length} messages as-is (passthrough)`);
-            for (const msg of interval.messages) {
-              combinedSummaries.push({
-                role: msg.type,
-                summary: extractTextContent(msg),
-                _tierInfo: {
-                  range: `${tier.startPercent}-${tier.endPercent}%`,
-                  compactionRatio: tier.compactionRatio,
-                  keepRatio: tier.keepRatio,
-                  passthrough: true
-                },
-                _originalTimestamp: msg.timestamp
-              });
-              totalSummarizedTo++;
-            }
           }
+          // Note: compactionRatio === 0 case already handled above (discard)
         }
       }
 
@@ -1335,6 +1298,33 @@ export async function summarizeWithTiers(messages, options = {}) {
       });
 
       console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}% HYBRID complete: ${tier.messages.length} -> ${combinedSummaries.length} (kept: ${selection.keptMessages.length}, summarized: ${totalSummarizedFrom} -> ${totalSummarizedTo}, intervals: ${intervals.length})`);
+      continue;
+    }
+
+    // Handle passthrough (ratio 0, no keepRatio) - no LLM processing, keep messages as-is
+    if (tier.compactionRatio === 0) {
+      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}%: PASSTHROUGH (${tier.messages.length} messages kept as-is)`);
+
+      for (const msg of tier.messages) {
+        allSummaries.push({
+          role: msg.type,
+          summary: extractTextContent(msg),
+          _tierInfo: {
+            range: `${tier.startPercent}-${tier.endPercent}%`,
+            compactionRatio: 0,
+            passthrough: true
+          },
+          _originalTimestamp: msg.timestamp
+        });
+      }
+
+      tierResults.push({
+        range: `${tier.startPercent}-${tier.endPercent}%`,
+        inputMessages: tier.messages.length,
+        outputMessages: tier.messages.length,
+        compactionRatio: 0,
+        passthrough: true
+      });
       continue;
     }
 
