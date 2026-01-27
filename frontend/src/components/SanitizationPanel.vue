@@ -386,7 +386,7 @@
           <div v-if="summarizationOptions.tierPreset === 'custom'" class="custom-tiers">
             <div class="custom-tiers-header">
               <span class="header-range">Range</span>
-              <span class="header-keep">Keep</span>
+              <span class="header-reduce">Reduce</span>
               <span class="header-ratio">Ratio</span>
               <span class="header-level">Level</span>
             </div>
@@ -394,16 +394,19 @@
               <span class="tier-range">
                 {{ idx === 0 ? '0' : summarizationOptions.customTiers[idx-1].endPercent }}-{{ tier.endPercent }}%
               </span>
-              <select
-                :value="tier.keepRatio || 0"
-                @change="updateCustomTier(idx, 'keepRatio', Number($event.target.value))"
-                class="tier-select tier-select-keep"
-                :title="tier.keepRatio === 0 ? 'No hybrid mode - summarize all' : tier.keepRatio === 1 ? 'Keep ALL messages verbatim (passthrough)' : `Keep 1 in ${tier.keepRatio} messages verbatim, summarize the rest`"
-              >
-                <option v-for="ratio in keepRatios" :key="ratio" :value="ratio">
-                  {{ ratio === 0 ? 'None' : ratio === 1 ? 'All' : `1:${ratio}` }}
-                </option>
-              </select>
+              <div class="tier-keep-container">
+                <select
+                  :value="tier.reductionPercent || 0"
+                  @change="updateCustomTier(idx, 'reductionPercent', Number($event.target.value))"
+                  class="tier-select tier-select-keep"
+                  :title="getReductionDisplayText(tier.reductionPercent || 0)"
+                >
+                  <option v-for="percent in reductionPercentages" :key="percent" :value="percent">
+                    {{ percent }}%
+                  </option>
+                </select>
+                <span class="tier-keep-helper">{{ getReductionDisplayText(tier.reductionPercent || 0) }}</span>
+              </div>
               <select
                 :value="tier.compactionRatio"
                 @change="updateCustomTier(idx, 'compactionRatio', Number($event.target.value))"
@@ -426,7 +429,7 @@
             <div class="hybrid-hint">
               <span class="hint-icon">i</span>
               <span class="hint-text">
-                <strong>Keep:</strong> LLM selects important messages to preserve verbatim.
+                <strong>Reduce:</strong> Percentage of messages to remove (LLM selects which to keep verbatim).
                 <strong>Ratio:</strong> Remaining messages are compressed.
               </span>
             </div>
@@ -528,11 +531,11 @@
               <span class="tier-preview-range">{{ tier.range }}</span>
               <span v-if="tier.hybrid" class="tier-preview-hybrid">
                 <span class="hybrid-badge">Hybrid</span>
-                <span class="tier-preview-details-text">keep {{ tier.estimatedKept }}, {{ tier.compactionRatio }}:1</span>
+                <span class="tier-preview-details-text">{{ getReductionDisplayText(tier.reductionPercent || keepRatioToReductionPercent(tier.keepRatio || 1)) }}, {{ tier.compactionRatio }}:1</span>
               </span>
               <span v-else-if="tier.passthrough" class="tier-preview-passthrough">Pass</span>
               <span v-else class="tier-preview-ratio">{{ tier.compactionRatio }}:1</span>
-              <span class="tier-preview-count">{{ tier.inputMessages }} → {{ tier.estimatedOutputMessages }}</span>
+              <span class="tier-preview-count">{{ tier.inputMessages }} -> {{ tier.estimatedOutputMessages }}</span>
             </div>
           </div>
         </div>
@@ -612,8 +615,51 @@ const summarizationVersion = ref('');
 const summarizationPresets = ref(null);
 // 0 = passthrough (no LLM), 1 = verbosity reduction only (same message count)
 const compactionRatios = ref([0, 1, 2, 3, 4, 5, 10, 15, 20, 25, 35, 50]);
-// Keep ratios for hybrid mode: 0 = don't keep any, 1 = keep all, 2+ = keep 1 in N
-const keepRatios = ref([0, 1, 2, 3, 4, 5, 10, 20, 50]);
+// Reduction percentages for hybrid mode (replaces keepRatios)
+// 0% = keep all, 10% = 9 in 10 kept, 50% = 1 in 2 kept, 90% = 1 in 10 kept
+const reductionPercentages = ref([0, 10, 20, 30, 40, 50, 60, 70, 80, 90]);
+
+// Helper function to convert reduction percentage to keep ratio for backend
+function reductionPercentToKeepRatio(reductionPercent) {
+  if (reductionPercent === 0) return 1; // Keep all
+  if (reductionPercent >= 100) return 0; // Keep none (shouldn't happen in UI)
+  // Calculate ratio: 100% kept = ratio 1, 50% kept = ratio 2, 10% kept = ratio 10
+  const keptPercent = 100 - reductionPercent;
+  return Math.round(100 / keptPercent);
+}
+
+// Helper function to get display text for reduction percentage
+function getReductionDisplayText(reductionPercent) {
+  if (reductionPercent === 0) return 'All kept';
+  if (reductionPercent === 10) return '9 in 10 kept';
+  if (reductionPercent === 20) return '4 in 5 kept';
+  if (reductionPercent === 30) return '7 in 10 kept';
+  if (reductionPercent === 40) return '3 in 5 kept';
+  if (reductionPercent === 50) return '1 in 2 kept';
+  if (reductionPercent === 60) return '2 in 5 kept';
+  if (reductionPercent === 70) return '3 in 10 kept';
+  if (reductionPercent === 80) return '1 in 5 kept';
+  if (reductionPercent === 90) return '1 in 10 kept';
+  return `${100 - reductionPercent}% kept`;
+}
+
+// Helper function to convert legacy keepRatio to reduction percentage (for loading existing configs)
+function keepRatioToReductionPercent(keepRatio) {
+  if (keepRatio === 0) return 100; // Keep none -> 100% reduction
+  if (keepRatio === 1) return 0; // Keep all -> 0% reduction
+  // ratio 2 = 50% kept = 50% reduction, ratio 10 = 10% kept = 90% reduction
+  return Math.round(100 - (100 / keepRatio));
+}
+
+// Convert custom tiers from frontend format (reductionPercent) to backend format (keepRatio)
+function convertTiersForBackend(tiers) {
+  return tiers.map(tier => ({
+    endPercent: tier.endPercent,
+    compactionRatio: tier.compactionRatio,
+    aggressiveness: tier.aggressiveness,
+    keepRatio: reductionPercentToKeepRatio(tier.reductionPercent || 0)
+  }));
+}
 const summarizationOptions = ref({
   compactionRatio: 10,
   aggressiveness: 'moderate',
@@ -622,11 +668,11 @@ const summarizationOptions = ref({
   useTiers: false,
   tierPreset: 'standard',
   customTiers: [
-    { endPercent: 25, compactionRatio: 35, aggressiveness: 'aggressive', keepRatio: 0 },
-    { endPercent: 50, compactionRatio: 20, aggressiveness: 'aggressive', keepRatio: 0 },
-    { endPercent: 75, compactionRatio: 10, aggressiveness: 'moderate', keepRatio: 0 },
-    { endPercent: 90, compactionRatio: 5, aggressiveness: 'moderate', keepRatio: 0 },
-    { endPercent: 100, compactionRatio: 3, aggressiveness: 'minimal', keepRatio: 0 }
+    { endPercent: 25, compactionRatio: 35, aggressiveness: 'aggressive', reductionPercent: 0 },
+    { endPercent: 50, compactionRatio: 20, aggressiveness: 'aggressive', reductionPercent: 0 },
+    { endPercent: 75, compactionRatio: 10, aggressiveness: 'moderate', reductionPercent: 0 },
+    { endPercent: 90, compactionRatio: 5, aggressiveness: 'moderate', reductionPercent: 0 },
+    { endPercent: 100, compactionRatio: 3, aggressiveness: 'minimal', reductionPercent: 0 }
   ],
   // Skip first N messages (for pasted context from previous sessions)
   skipFirstMessages: 0,
@@ -859,7 +905,8 @@ async function previewSummarizationAction() {
       if (opts.tierPreset !== 'custom') {
         options.tierPreset = opts.tierPreset;
       } else {
-        options.tiers = opts.customTiers;
+        // Convert reductionPercent to keepRatio for backend compatibility
+        options.tiers = convertTiersForBackend(opts.customTiers);
       }
     } else {
       options.compactionRatio = opts.compactionRatio;
@@ -916,7 +963,8 @@ async function applySummarizationAction() {
       if (opts.tierPreset !== 'custom') {
         options.tierPreset = opts.tierPreset;
       } else {
-        options.tiers = opts.customTiers;
+        // Convert reductionPercent to keepRatio for backend compatibility
+        options.tiers = convertTiersForBackend(opts.customTiers);
       }
     } else {
       options.compactionRatio = opts.compactionRatio;
@@ -1031,7 +1079,8 @@ async function saveToMemory(summarizationResult) {
       if (opts.tierPreset !== 'custom') {
         compressionSettings.tierPreset = opts.tierPreset;
       } else {
-        compressionSettings.tiers = opts.customTiers;
+        // Convert reductionPercent to keepRatio for backend compatibility
+        compressionSettings.tiers = convertTiersForBackend(opts.customTiers);
       }
     } else {
       compressionSettings.compactionRatio = opts.compactionRatio;
@@ -2387,8 +2436,8 @@ async function saveToMemory(summarizationResult) {
   min-width: 70px;
 }
 
-.header-keep {
-  min-width: 55px;
+.header-reduce {
+  min-width: 120px;
 }
 
 .header-ratio {
@@ -2592,8 +2641,22 @@ async function saveToMemory(summarizationResult) {
 }
 
 /* Hybrid mode styles */
+.tier-keep-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 120px;
+}
+
 .tier-select-keep {
-  min-width: 55px;
+  min-width: 50px;
+}
+
+.tier-keep-helper {
+  font-size: 0.65rem;
+  color: #7c3aed;
+  font-style: italic;
+  padding-left: 0.25rem;
 }
 
 .hybrid-hint {
