@@ -22,14 +22,18 @@ A web application for managing, analyzing, and sanitizing Claude Code context fi
 
 ### 🤖 AI-Powered Summarization
 - **Conversation Compression**: Use Claude CLI to intelligently summarize conversation ranges
-- **Tiered Compaction**: Apply different compression ratios to different parts of the conversation
-  - Aggressive compression (35-50x) for old messages
-  - Moderate compression (5-20x) for middle sections
-  - Minimal compression (2-3x) for recent context
+- **Two-Phase Hybrid Compression**:
+  - **Keep Percentage** (0-100%): LLM selects this percentage of messages to preserve losslessly
+  - **Compaction Ratio**: What to do with non-kept messages (Remove, Verbosity Reduction, or N:1 Summarization)
+- **Tiered Compaction**: Apply different compression settings to different parts of the conversation
+  - Aggressive compression for old messages
+  - Moderate compression for middle sections
+  - Minimal compression for recent context
 - **Uniform Mode**: Apply single compression ratio across selected range
-- **Configurable Ratios**: Choose from 2x to 50x compression
+- **Configurable Ratios**: 0 (Passthrough/Remove), 1 (Verbosity Only), 2-50 (N:1 Summarization)
+- **Aggressiveness Levels**: Minimal (preserve detail), Moderate (balanced), Aggressive (max compression)
 - **Smart Chunking**: Automatically chunks large conversations to avoid timeouts
-- **Export Options**: Modify in place, export as JSONL, or export as Markdown
+- **Export Options**: Modify in place, export as JSONL, export as Markdown, or save to Memory System
 
 ### 💾 Backup & Restore
 - **Automatic Versioning**: Keep last 10 versions of your sanitized sessions
@@ -199,14 +203,29 @@ npm run frontend:build
 - **Select Range**: Use slider to choose what percentage of messages to summarize (0-100%)
 - **Choose Mode**:
   - **Uniform**: Single compression ratio across all selected messages
-  - **Tiered**: Different ratios for different age ranges (recommended)
-- **Configure Tiers** (for tiered mode):
-  - Select from presets (Conservative, Moderate, Aggressive)
-  - Or customize each tier's compression ratio
+  - **Variable (Tiered)**: Different settings for different age ranges (recommended)
+- **Configure Settings**:
+  - **Keep Percentage** (0-100%): What percentage of messages LLM selects to preserve losslessly
+    - 100% = True lossless (all messages kept verbatim, no LLM processing)
+    - 50% = LLM picks 50% of messages to keep verbatim
+    - 0% = No messages kept verbatim, all go through summarization
+  - **Compaction Ratio**: What to do with non-kept messages
+    - In Uniform mode: 0 = Passthrough (keep all as-is), 1+ = summarize
+    - In Tiered mode: 0 = Remove (delete non-kept), 1 = verbosity reduction, 2+ = N:1 summarization
+  - **Aggressiveness Level**: Min (preserve detail), Mod (balanced), Agg (max compression)
+- **Preset Tiers** (for tiered mode):
+  - Gentle: Light compression
+  - Standard: Balanced compression
+  - Aggressive: Maximum compression
+  - Custom: Define your own tier configurations
 - **Select Output**:
   - **Modify Current**: Updates the session file in place
   - **Export JSONL**: Creates new summarized JSONL file
   - **Export Markdown**: Creates readable markdown transcript
+  - **Save to Memory**: Registers session and saves compression version to Memory System
+- **Additional Options**:
+  - **Skip first messages**: Preserve first N messages as-is (for pasted context)
+  - **Preserve URLs and file paths**: Instructs LLM to keep links intact
 - **Requirements**: Claude CLI must be installed and authenticated
 
 ### 8. Memory System

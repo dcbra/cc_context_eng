@@ -105,10 +105,19 @@ The content **barely survives** (weight equals threshold).
 
 1. Select a registered session
 2. Click **Create Version**
-3. Choose compression level:
-   - **Light**: ~10% compression, preserves most detail
-   - **Moderate**: ~30% compression, balanced
-   - **Aggressive**: ~50% compression, essential content only
+3. Configure compression settings:
+
+**Keep Percentage** (0-100% in 5% intervals):
+- 100% = True lossless - all messages kept verbatim, no LLM processing
+- 50% = LLM selects 50% of messages to preserve losslessly
+- 0% = No messages kept verbatim, all go through summarization
+
+**Compaction Ratio**:
+- In Uniform mode: 0 = Passthrough (keep all as-is), 1+ = summarize
+- In Tiered/Hybrid mode: 0 = Remove (delete non-kept), 1 = verbosity reduction, 2+ = summarize N:1
+
+**Aggressiveness Level**: Min (preserve detail), Mod (balanced), Agg (max compression)
+
 4. The AI summarizer creates the compressed version
 
 ### Build a Composition
@@ -305,6 +314,66 @@ Each part can have multiple versions at different compression levels:
 | 3 | Aggressive | Heavy compression, essential content only |
 
 You can create multiple versions of the same part at different levels, then select the appropriate one when composing context based on your token budget.
+
+### Summarization Settings Reference
+
+The summarization system uses a two-phase hybrid approach that combines message selection with compression.
+
+#### Keep Percentage (0% to 100% in 5% intervals)
+
+Controls what percentage of messages the LLM selects to preserve losslessly (verbatim):
+
+| Keep % | Behavior |
+|--------|----------|
+| 100% | True lossless - all messages kept verbatim, no LLM processing |
+| 50% | LLM selects 50% of messages to preserve losslessly |
+| 0% | No messages kept verbatim, all go through summarization |
+
+#### Compaction Ratio
+
+Controls what happens to messages that are NOT kept (after LLM selection):
+
+**In Uniform mode:**
+| Ratio | Behavior |
+|-------|----------|
+| 0 | Passthrough - keep all messages as-is (no LLM processing) |
+| 1+ | Summarize messages with N:1 compression |
+
+**In Tiered/Hybrid mode:**
+| Ratio | Behavior |
+|-------|----------|
+| 0 (Remove) | Delete non-kept messages entirely |
+| 1 (1:1) | Reduce verbosity only (no N:1 compression) |
+| 2+ (N:1) | Summarize N messages into 1 |
+
+#### Aggressiveness Level
+
+Controls how much detail the LLM preserves during summarization:
+
+| Level | Name | Description |
+|-------|------|-------------|
+| Min | Minimal | Preserve maximum detail |
+| Mod | Moderate | Balanced compression |
+| Agg | Aggressive | Maximum compression, essential content only |
+
+#### Behavior Matrix
+
+Here's how the settings interact:
+
+| Keep | Ratio | Level | Behavior |
+|------|-------|-------|----------|
+| 100% | (ignored) | (ignored) | True lossless - nothing changes |
+| 50% | 0 (Remove) | - | LLM picks 50% verbatim, delete rest |
+| 50% | 1 (1:1) | Min/Mod/Agg | LLM picks 50% verbatim, verbosity-reduce rest |
+| 50% | 5 (5:1) | Min/Mod/Agg | LLM picks 50% verbatim, summarize rest 5:1 |
+| 0% | 5 (5:1) | Agg | No selection phase, summarize all 5:1 aggressively |
+
+#### Additional Options
+
+- **Skip First Messages**: Preserve first N messages as-is (useful for pasted context from previous sessions)
+- **Preserve URLs and File Paths**: Instructs LLM to keep links, image references, and file paths intact
+- **Extract Images**: Converts base64 embedded images to file references (prevents Claude Code duplication bug)
+- **Preserve AskUserQuestion**: Keeps user interaction Q&A pairs during summarization
 
 ### Using Delta Compression
 
