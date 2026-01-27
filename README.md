@@ -376,6 +376,8 @@ cc_context_eng/
 |----------|---------|-------------|
 | `PORT` | `3001` | Backend server port |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Path to Claude CLI config directory |
+| `CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE` | (none) | Override Claude Code's client-side context limit check. Set to a higher value (e.g., `250000`) to bypass the blocking limit after sanitizing sessions. |
+| `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` | `25000` | Maximum tokens Claude Code can read from a file at once. Increase (e.g., `100000`) to read larger files without truncation. |
 
 ## Development Notes
 
@@ -403,12 +405,36 @@ Currently uses character count (1 token ≈ 4 chars). To integrate actual tokeni
 
 Starting with Claude Code v2.1.12, once the `/compact` prompt appears, the session becomes locked - you cannot continue without running `/compact`, even if you sanitize the conversation file and free up context space.
 
-**Workarounds:**
-1. **Sanitize proactively** - Monitor your context usage and sanitize *before* hitting the limit
-2. **Export and restart** - Export to Markdown (or AI-summarized Markdown), start a new session, and paste the summary as context
-3. **Use AI summarization early** - Compress old conversation sections before reaching limits
+**How it works internally:**
+- Claude Code performs a **client-side check** before sending requests to the API
+- The blocking limit = `context_window - 3000` tokens (≈197,000 for 200K context)
+- When exceeded, it creates a synthetic error with `"isApiErrorMessage": true` in the session file
+- This error marker blocks the session even after you reduce content
 
-This tool helps you manage context more effectively, but be aware that once Claude Code triggers its compaction prompt, external sanitization won't bypass it.
+**Workarounds:**
+
+1. **Override the blocking limit** (recommended after sanitizing):
+   ```bash
+   # One-time run
+   CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=250000 claude --resume <session-id>
+
+   # Or add to ~/.bashrc for permanent override
+   export CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=250000
+   ```
+   This bypasses the client-side check. The API may still reject if truly over limit.
+
+2. **Remove the error marker** from the session file:
+   - Find the last message with `"isApiErrorMessage": true` and `"error": "invalid_request"`
+   - Delete that entire JSON line from the `.jsonl` file
+   - Combined with the env override, this allows resuming sanitized sessions
+
+3. **Sanitize proactively** - Monitor your context usage and sanitize *before* hitting the limit
+
+4. **Export and restart** - Export to Markdown (or AI-summarized Markdown), start a new session, and paste the summary as context
+
+5. **Use AI summarization early** - Compress old conversation sections before reaching limits
+
+This tool helps you manage context more effectively. With the `CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE` environment variable, you can now resume sessions after sanitizing them externally.
 
 ## Limitations & Future Improvements
 

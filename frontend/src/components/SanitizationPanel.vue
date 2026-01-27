@@ -876,9 +876,7 @@ async function checkClaudeAvailability() {
       if (presetsData.compactionRatios) {
         compactionRatios.value = presetsData.compactionRatios;
       }
-      if (presetsData.keepRatios) {
-        keepRatios.value = presetsData.keepRatios;
-      }
+      // Note: keepRatios replaced by reductionPercentages which is hardcoded
     }
   } catch (err) {
     summarizationAvailable.value = false;
