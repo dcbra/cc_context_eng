@@ -613,10 +613,12 @@ const loadingDuplicates = ref(false);
 const summarizationAvailable = ref(false);
 const summarizationVersion = ref('');
 const summarizationPresets = ref(null);
-// 0 = passthrough (no LLM), 1 = verbosity reduction only (same message count)
+// Compaction ratios:
+// - In Uniform mode: 0 = passthrough (keep all as-is), 1+ = summarize
+// - In Tiered/Hybrid mode: 0 = Remove (delete non-kept), 1 = verbosity reduction, 2+ = summarize
 const compactionRatios = ref([0, 1, 2, 3, 4, 5, 10, 15, 20, 25, 35, 50]);
-// Reduction percentages for hybrid mode (replaces keepRatios)
-// 0% = keep all, 10% = 9 in 10 kept, 50% = 1 in 2 kept, 90% = 1 in 10 kept
+// Reduction percentages for hybrid mode - how many messages LLM selects to keep verbatim
+// 0% = keep none (all go through ratio), 50% = keep half, 90% = keep 90%
 const reductionPercentages = ref([0, 10, 20, 30, 40, 50, 60, 70, 80, 90]);
 
 // Helper function to convert reduction percentage to keep ratio for backend
