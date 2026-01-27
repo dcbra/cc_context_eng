@@ -1499,10 +1499,11 @@ export async function summarizeWithTiers(messages, options = {}) {
   let totalInput = 0, totalKept = 0, totalDeleted = 0, totalSummarizedFrom = 0, totalSummarizedTo = 0, totalOutput = 0;
 
   for (const tier of tierResults) {
-    const kept = tier.keptVerbatim || (tier.passthrough ? tier.inputMessages : 0);
-    const deleted = tier.deleted || 0;
-    const sumFrom = tier.summarizedFrom || (tier.passthrough ? 0 : tier.inputMessages);
-    const sumTo = tier.summarizedTo || (tier.passthrough ? 0 : tier.outputMessages);
+    const kept = tier.keptVerbatim ?? (tier.passthrough ? tier.inputMessages : 0);
+    const deleted = tier.deleted ?? 0;
+    // Use ?? to handle 0 correctly (0 is a valid value, not falsy)
+    const sumFrom = tier.summarizedFrom ?? (tier.passthrough ? 0 : tier.inputMessages);
+    const sumTo = tier.summarizedTo ?? (tier.passthrough ? 0 : tier.outputMessages);
     const summarizedStr = sumFrom > 0 ? `${sumFrom} -> ${sumTo}` : '-';
 
     console.log(`[Summarizer] ${tier.range.padEnd(12)} | ${String(tier.inputMessages).padEnd(6)} | ${String(kept).padEnd(6)} | ${String(deleted).padEnd(8)} | ${summarizedStr.padEnd(12)} | ${String(tier.outputMessages).padEnd(6)}`);
