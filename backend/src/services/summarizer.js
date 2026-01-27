@@ -1140,7 +1140,11 @@ export async function summarizeWithTiers(messages, options = {}) {
         range: `${tier.startPercent}-${tier.endPercent}%`,
         inputMessages: 1,
         outputMessages: 1,
-        compactionRatio: tier.compactionRatio
+        compactionRatio: tier.compactionRatio,
+        keptVerbatim: 1,
+        deleted: 0,
+        summarizedFrom: 0,
+        summarizedTo: 0
       });
       continue;
     }
@@ -1284,6 +1288,10 @@ export async function summarizeWithTiers(messages, options = {}) {
       }
 
       allSummaries.push(...combinedSummaries);
+
+      // Calculate deleted count (messages that were discarded with Remove option)
+      const deletedCount = tier.compactionRatio === 0 ? totalSummarizedFrom : 0;
+
       tierResults.push({
         range: `${tier.startPercent}-${tier.endPercent}%`,
         inputMessages: tier.messages.length,
@@ -1291,14 +1299,15 @@ export async function summarizeWithTiers(messages, options = {}) {
         compactionRatio: tier.compactionRatio,
         keepPercent: tier.keepPercent,
         keptVerbatim: selection.keptMessages.length,
-        summarizedFrom: totalSummarizedFrom,
+        deleted: deletedCount,
+        summarizedFrom: tier.compactionRatio === 0 ? 0 : totalSummarizedFrom,
         summarizedTo: totalSummarizedTo,
         intervals: intervals.length,
         aggressiveness: tier.aggressiveness,
         hybrid: true
       });
 
-      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}% HYBRID complete: ${tier.messages.length} -> ${combinedSummaries.length} (kept: ${selection.keptMessages.length}, summarized: ${totalSummarizedFrom} -> ${totalSummarizedTo}, intervals: ${intervals.length})`);
+      console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}% HYBRID complete: ${tier.messages.length} -> ${combinedSummaries.length} (kept: ${selection.keptMessages.length}, deleted: ${deletedCount}, summarized: ${totalSummarizedFrom} -> ${totalSummarizedTo})`);
       continue;
     }
 
@@ -1324,6 +1333,10 @@ export async function summarizeWithTiers(messages, options = {}) {
         inputMessages: tier.messages.length,
         outputMessages: tier.messages.length,
         compactionRatio: 0,
+        keptVerbatim: tier.messages.length,
+        deleted: 0,
+        summarizedFrom: 0,
+        summarizedTo: 0,
         passthrough: true
       });
       continue;
@@ -1418,6 +1431,10 @@ export async function summarizeWithTiers(messages, options = {}) {
         outputMessages: tierSummaries.length,
         compactionRatio: tier.compactionRatio,
         aggressiveness: tier.aggressiveness,
+        keptVerbatim: askUserIndices.length,
+        deleted: 0,
+        summarizedFrom: tier.messages.length - askUserIndices.length,
+        summarizedTo: tierSummaries.length - askUserIndices.length,
         askUserQuestionsPreserved: askUserIndices.length
       });
 
@@ -1464,11 +1481,44 @@ export async function summarizeWithTiers(messages, options = {}) {
       outputMessages: tierSummaries.length,
       compactionRatio: tier.compactionRatio,
       aggressiveness: tier.aggressiveness,
+      keptVerbatim: 0,
+      deleted: 0,
+      summarizedFrom: tier.messages.length,
+      summarizedTo: tierSummaries.length,
       chunks: chunks.length
     });
 
     console.log(`[Summarizer] Tier ${tier.startPercent}-${tier.endPercent}% complete: ${tier.messages.length} -> ${tierSummaries.length} messages`);
   }
+
+  // Print summary table
+  console.log(`\n[Summarizer] ==================== SUMMARIZATION SUMMARY ====================`);
+  console.log(`[Summarizer] ${'Range'.padEnd(12)} | ${'Total'.padEnd(6)} | ${'Kept'.padEnd(6)} | ${'Deleted'.padEnd(8)} | ${'Summarized'.padEnd(12)} | ${'Final'.padEnd(6)}`);
+  console.log(`[Summarizer] ${'-'.repeat(12)} | ${'-'.repeat(6)} | ${'-'.repeat(6)} | ${'-'.repeat(8)} | ${'-'.repeat(12)} | ${'-'.repeat(6)}`);
+
+  let totalInput = 0, totalKept = 0, totalDeleted = 0, totalSummarizedFrom = 0, totalSummarizedTo = 0, totalOutput = 0;
+
+  for (const tier of tierResults) {
+    const kept = tier.keptVerbatim || (tier.passthrough ? tier.inputMessages : 0);
+    const deleted = tier.deleted || 0;
+    const sumFrom = tier.summarizedFrom || (tier.passthrough ? 0 : tier.inputMessages);
+    const sumTo = tier.summarizedTo || (tier.passthrough ? 0 : tier.outputMessages);
+    const summarizedStr = sumFrom > 0 ? `${sumFrom} -> ${sumTo}` : '-';
+
+    console.log(`[Summarizer] ${tier.range.padEnd(12)} | ${String(tier.inputMessages).padEnd(6)} | ${String(kept).padEnd(6)} | ${String(deleted).padEnd(8)} | ${summarizedStr.padEnd(12)} | ${String(tier.outputMessages).padEnd(6)}`);
+
+    totalInput += tier.inputMessages;
+    totalKept += kept;
+    totalDeleted += deleted;
+    totalSummarizedFrom += sumFrom;
+    totalSummarizedTo += sumTo;
+    totalOutput += tier.outputMessages;
+  }
+
+  console.log(`[Summarizer] ${'-'.repeat(12)} | ${'-'.repeat(6)} | ${'-'.repeat(6)} | ${'-'.repeat(8)} | ${'-'.repeat(12)} | ${'-'.repeat(6)}`);
+  const totalSummarizedStr = totalSummarizedFrom > 0 ? `${totalSummarizedFrom} -> ${totalSummarizedTo}` : '-';
+  console.log(`[Summarizer] ${'TOTAL'.padEnd(12)} | ${String(totalInput).padEnd(6)} | ${String(totalKept).padEnd(6)} | ${String(totalDeleted).padEnd(8)} | ${totalSummarizedStr.padEnd(12)} | ${String(totalOutput).padEnd(6)}`);
+  console.log(`[Summarizer] =====================================================================\n`);
 
   return {
     summaries: allSummaries,
