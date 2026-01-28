@@ -14,6 +14,8 @@ export async function parseJsonlFile(filePath) {
 
   const messages = [];
   const fileHistorySnapshots = [];
+  const progressRecords = [];  // CC 2.1.20+ progress/agent records (have parentUuid, part of chain)
+  const queueOperations = [];  // CC 2.1.20+ queue state records
   const seenMessageUuids = new Set(); // Track seen UUIDs to handle duplicates
   let summary = null;
   let duplicateCount = 0;
@@ -29,6 +31,12 @@ export async function parseJsonlFile(filePath) {
         summary = record;
       } else if (record.type === 'file-history-snapshot') {
         fileHistorySnapshots.push(record);
+      } else if (record.type === 'progress') {
+        // Progress records have parentUuid and are part of the conversation chain
+        progressRecords.push(record);
+      } else if (record.type === 'queue-operation') {
+        // Queue operation records for CC's internal state
+        queueOperations.push(record);
       } else if (record.type === 'user' || record.type === 'assistant' || record.type === 'system') {
         // Skip duplicate messages (Claude Code sometimes writes duplicates)
         if (record.uuid && seenMessageUuids.has(record.uuid)) {
@@ -61,6 +69,8 @@ export async function parseJsonlFile(filePath) {
     messages,
     messageGraph,
     fileHistorySnapshots,
+    progressRecords,   // CC 2.1.20+ - needed for parent chain walking
+    queueOperations,   // CC 2.1.20+ - preserved for compatibility
     totalMessages: messages.length,
     sessionId: messages[0]?.sessionId || null,
     metadata: messages[0] ? {

@@ -50,8 +50,15 @@ export function sanitizeSession(parsed, options = {}) {
   }
 
   // Phase 3: Apply additional sanitization criteria
+  // Build a complete record set for parent chain walking that includes:
+  // - All messages (user, assistant, system)
+  // - Progress records (they have parentUuid and are part of the chain)
+  const allRecordsForChainWalk = [
+    ...deduplicatedMessages,
+    ...(parsed.progressRecords || []).map(p => ({ uuid: p.uuid, parentUuid: p.parentUuid, type: 'progress' }))
+  ];
   if (Object.keys(removeCriteria).length > 0) {
-    messages = applySanitizationCriteria(messages, removeCriteria);
+    messages = applySanitizationCriteria(messages, removeCriteria, allRecordsForChainWalk);
   }
 
   return {
@@ -349,9 +356,14 @@ function getMessageType(message) {
 /**
  * Apply additional sanitization criteria with priority system
  * Priority: Manual selections > Percentage range + Message type filter (REMOVE) > Content criteria
+ * @param {Array} messages - Current working set of messages
+ * @param {Object} criteria - Sanitization criteria to apply
+ * @param {Array} allOriginalRecords - All records with parentUuid (messages + progress) for chain walking
  */
-function applySanitizationCriteria(messages, criteria) {
+function applySanitizationCriteria(messages, criteria, allOriginalRecords = null) {
   let workingSet = [...messages];
+  // Use allOriginalRecords for parent chain walking (includes progress records)
+  const recordsForChainWalk = allOriginalRecords || messages;
 
   // Determine the "in range" set - either from manual selection or percentage range
   // Manual selection takes priority over percentage range
@@ -443,8 +455,9 @@ function applySanitizationCriteria(messages, criteria) {
     // Update parentUuid chains for remaining messages to skip removed messages
     // This prevents orphaned roots that Claude Code interprets as session boundaries
     if (beforeFilter !== workingSet.length) {
-      // Build a map of all original messages (before filtering) to walk parent chains
-      const originalMessageMap = new Map(messages.map(m => [m.uuid, m]));
+      // Build a map of ALL records with parentUuid (messages + progress) for chain walking
+      // This is critical: progress records are part of the chain but not in messages array
+      const originalMessageMap = new Map(recordsForChainWalk.map(m => [m.uuid, m]));
       // Build a set of kept message UUIDs for quick lookup
       const keptUuids = new Set(workingSet.map(m => m.uuid));
 
@@ -613,6 +626,16 @@ export function sessionToJsonl(parsed, sanitizedMessages) {
     if (!snapshot.messageId || keptUuids.has(snapshot.messageId)) {
       lines.push(JSON.stringify(snapshot));
     }
+  }
+
+  // Add progress records (CC 2.1.20+ - part of conversation chain)
+  for (const progress of (parsed.progressRecords || [])) {
+    lines.push(JSON.stringify(progress));
+  }
+
+  // Add queue operation records (CC 2.1.20+ - internal state)
+  for (const queueOp of (parsed.queueOperations || [])) {
+    lines.push(JSON.stringify(queueOp));
   }
 
   // Add sanitized messages
